@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
 
 import typer
 
-from ..config import append_host_block, parse_config_files
-from ..models import HostBlock
+from ..config import DEFAULT_HOME_SSH_CONFIG, append_host_block, parse_config_files
 from .common import console, matching_blocks
 
 
@@ -21,7 +19,7 @@ def register(app: typer.Typer) -> None:
             help="Name for the new Host block.",
         ),
         target: Path = typer.Option(
-            Path("~/.ssh/config"),
+            Path(DEFAULT_HOME_SSH_CONFIG),
             "--target",
             "-t",
             help="SSH config file to append to.",

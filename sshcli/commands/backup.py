@@ -33,7 +33,7 @@ class BackupEntry:
 
 
 def _default_target() -> Path:
-    return Path("~/.ssh/config")
+    return Path(config_module.DEFAULT_HOME_SSH_CONFIG)
 
 
 def _expand_target(target: Path) -> Path:
@@ -112,7 +112,7 @@ def _discover_backups(target: Path) -> List[BackupEntry]:
         if candidate in seen_paths:
             continue
         seen_paths.add(candidate)
-        stamp = candidate.name[len(prefix) :]
+        stamp = candidate.name[len(prefix):]
         timestamp = _parse_timestamp(stamp)
         entries.append(
             BackupEntry(
@@ -251,6 +251,33 @@ def prune_backups(
     ),
 ):
     """Delete old backups by count or timestamp."""
+    cutoff = _validate_prune_arguments(keep, before)
+    backups = _discover_backups(target)
+    if not backups:
+        console.print("[yellow]No backups found.[/yellow]")
+        raise typer.Exit(code=0)
+
+    removal_paths = _select_backups_to_remove(backups, keep, cutoff)
+    if not removal_paths:
+        console.print("[green]Nothing to prune.[/green]")
+        raise typer.Exit(code=0)
+
+    if dry_run:
+        console.print("[yellow]Backups that would be removed:[/yellow]")
+        for path in sorted(removal_paths):
+            console.print(f"  - {path}")
+        raise typer.Exit(code=0)
+
+    removed = _delete_backups(removal_paths)
+    if removed:
+        console.print("[green]Removed backups:[/green]")
+        for path in removed:
+            console.print(f"  - {path}")
+    else:
+        console.print("[yellow]No backups were removed.[/yellow]")
+
+
+def _validate_prune_arguments(keep: Optional[int], before: Optional[str]) -> Optional[datetime]:
     if keep is None and before is None:
         console.print("[red]Specify --keep and/or --before to prune backups.[/red]")
         raise typer.Exit(code=1)
@@ -259,56 +286,43 @@ def prune_backups(
         console.print("[red]--keep must be zero or greater.[/red]")
         raise typer.Exit(code=1)
 
-    cutoff: Optional[datetime] = None
-    if before is not None:
-        cutoff = _parse_timestamp(before)
-        if cutoff is None:
-            console.print("[red]--before must be in YYYYMMDDHHMMSS format.[/red]")
-            raise typer.Exit(code=1)
+    if before is None:
+        return None
+    cutoff = _parse_timestamp(before)
+    if cutoff is None:
+        console.print("[red]--before must be in YYYYMMDDHHMMSS format.[/red]")
+        raise typer.Exit(code=1)
+    return cutoff
 
-    backups = _discover_backups(target)
-    if not backups:
-        console.print("[yellow]No backups found.[/yellow]")
-        raise typer.Exit(code=0)
 
-    to_remove: List[BackupEntry] = []
+def _select_backups_to_remove(
+    backups: List[BackupEntry],
+    keep: Optional[int],
+    cutoff: Optional[datetime],
+) -> List[Path]:
+    candidates: List[BackupEntry] = []
 
     if keep is not None and keep < len(backups):
-        to_remove.extend(backups[keep:])
+        candidates.extend(backups[keep:])
 
     if cutoff is not None:
         for entry in backups:
-            candidate_dt = entry.timestamp
-            if candidate_dt is None:
-                continue
-            if candidate_dt < cutoff:
-                to_remove.append(entry)
+            if entry.timestamp is not None and entry.timestamp < cutoff:
+                candidates.append(entry)
 
-    unique_paths = {entry.path for entry in to_remove}
-    if not unique_paths:
-        console.print("[green]Nothing to prune.[/green]")
-        raise typer.Exit(code=0)
+    unique_paths = {entry.path for entry in candidates}
+    return sorted(unique_paths)
 
-    if dry_run:
-        console.print("[yellow]Backups that would be removed:[/yellow]")
-        for path in sorted(unique_paths):
-            console.print(f"  - {path}")
-        raise typer.Exit(code=0)
 
+def _delete_backups(paths: List[Path]) -> List[Path]:
     removed: List[Path] = []
-    for path in sorted(unique_paths):
+    for path in paths:
         try:
             path.unlink()
             removed.append(path)
         except OSError as exc:
             console.print(f"[red]Failed to delete {path}: {exc}[/red]")
-
-    if removed:
-        console.print("[green]Removed backups:[/green]")
-        for path in removed:
-            console.print(f"  - {path}")
-    else:
-        console.print("[yellow]No backups were removed.[/yellow]")
+    return removed
 
 
 def register(app: typer.Typer) -> None:

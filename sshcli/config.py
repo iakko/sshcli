@@ -9,9 +9,11 @@ from typing import Iterable, List, Optional, Tuple
 
 from .models import HostBlock
 
+DEFAULT_HOME_SSH_CONFIG = "~/.ssh/config"
+
 DEFAULT_CONFIG_PATHS = [
     "/etc/ssh/ssh_config",
-    "~/.ssh/config",
+    DEFAULT_HOME_SSH_CONFIG,
 ]
 
 DEFAULT_INCLUDE_FALLBACKS = [
@@ -50,6 +52,40 @@ def _read_lines(path: Path) -> Iterable[Tuple[int, str]]:
         return
 
 
+def _iter_config_parts(file_path: Path) -> Iterable[Tuple[int, List[str]]]:
+    for lineno, raw_line in _read_lines(file_path):
+        line = raw_line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        yield lineno, line.split()
+
+
+def _start_new_block(
+    current: Optional[HostBlock],
+    patterns: List[str],
+    file_path: Path,
+    lineno: int,
+    blocks: List[HostBlock],
+) -> HostBlock:
+    if current is not None:
+        blocks.append(current)
+    return HostBlock(patterns=patterns, source_file=file_path, lineno=lineno)
+
+
+def _append_option(current: Optional[HostBlock], parts: List[str]) -> Optional[HostBlock]:
+    if current is None or len(parts) < 2:
+        return current
+    option_key = parts[0]
+    option_value = " ".join(parts[1:])
+    current.options[option_key] = option_value
+    return current
+
+
+def _finalize_block(current: Optional[HostBlock], blocks: List[HostBlock]) -> None:
+    if current is not None:
+        blocks.append(current)
+
+
 def parse_config_files(entrypoints: List[Path]) -> List[HostBlock]:
     """Parse host blocks recursively while following Include directives."""
     seen: set[Path] = set()
@@ -61,40 +97,27 @@ def parse_config_files(entrypoints: List[Path]) -> List[HostBlock]:
         seen.add(file_path)
 
         current: Optional[HostBlock] = None
-        for lineno, raw_line in _read_lines(file_path):
-            line = raw_line.strip()
-            if "#" in line:
-                line = line.split("#", 1)[0].rstrip()
-            if not line:
-                continue
+        for lineno, parts in _iter_config_parts(file_path):
+            key = parts[0].lower()
 
-            parts = line.split()
-            key = parts[0]
-
-            if key.lower() == "include" and len(parts) >= 2:
+            if key == "include" and len(parts) >= 2:
                 include_pattern = " ".join(parts[1:])
                 for included in _expand_path(include_pattern, current_file=file_path):
                     parse_one(included)
                 continue
 
-            if key.lower() == "match":
+            if key == "match":
                 # Skipped in this minimal viewer.
                 continue
 
-            if key.lower() == "host" and len(parts) >= 2:
-                if current is not None:
-                    blocks.append(current)
+            if key == "host" and len(parts) >= 2:
                 patterns = parts[1:]
-                current = HostBlock(patterns=patterns, source_file=file_path, lineno=lineno)
+                current = _start_new_block(current, patterns, file_path, lineno, blocks)
                 continue
 
-            if current is not None and len(parts) >= 2:
-                option_key = key
-                option_value = " ".join(parts[1:])
-                current.options[option_key] = option_value
+            current = _append_option(current, parts)
 
-        if current is not None:
-            blocks.append(current)
+        _finalize_block(current, blocks)
 
     for entrypoint in entrypoints:
         parse_one(entrypoint)

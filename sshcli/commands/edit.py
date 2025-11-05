@@ -10,6 +10,113 @@ from ..models import HostBlock
 from .common import console, matching_blocks, parse_option_entry
 
 
+def _resolve_edit_target(target: Path) -> Path:
+    resolved = target.expanduser()
+    if not resolved.exists():
+        console.print(f"[red]Config file {resolved} does not exist.[/red]")
+        raise typer.Exit(1)
+    return resolved
+
+
+def _load_blocks_for_target(resolved_target: Path) -> List[HostBlock]:
+    return [
+        block
+        for block in parse_config_files([resolved_target])
+        if block.source_file == resolved_target
+    ]
+
+
+def _select_block_for_edit(name: str, blocks: List[HostBlock], target: Path) -> HostBlock:
+    _, matched = matching_blocks(name, blocks)
+    if not matched:
+        console.print(f"[yellow]No host block matches '{name}' in {target}.[/yellow]")
+        raise typer.Exit(1)
+    if len(matched) > 1:
+        console.print("[red]Multiple host blocks match. Refine your selection:[/red]")
+        for block in matched:
+            console.print(
+                f"  - {' '.join(block.patterns)} ({block.source_file}:{block.lineno})"
+            )
+        raise typer.Exit(1)
+    return matched[0]
+
+
+def _compute_patterns(set_pattern: Optional[List[str]], block: HostBlock) -> List[str]:
+    if set_pattern is not None:
+        if not set_pattern:
+            console.print("[red]At least one pattern is required when replacing patterns.[/red]")
+            raise typer.Exit(1)
+        return list(set_pattern)
+    return list(block.patterns)
+
+
+def _initial_options(
+    block: HostBlock,
+    clear_options: bool,
+) -> List[Tuple[str, str]]:
+    if clear_options:
+        return []
+    return list(block.options.items())
+
+
+def _set_option(options: List[Tuple[str, str]], key: str, value: str) -> None:
+    lower = key.lower()
+    for idx, (existing_key, _) in enumerate(options):
+        if existing_key.lower() == lower:
+            options[idx] = (existing_key, value)
+            return
+    options.append((key, value))
+
+
+def _remove_option(options: List[Tuple[str, str]], key: str) -> bool:
+    lower = key.lower()
+    for idx, (existing_key, _) in enumerate(options):
+        if existing_key.lower() == lower:
+            del options[idx]
+            return True
+    return False
+
+
+def _apply_option_updates(
+    options: List[Tuple[str, str]],
+    hostname: Optional[str],
+    user: Optional[str],
+    port: Optional[int],
+    extra_options: List[str],
+) -> None:
+    if hostname is not None:
+        if hostname == "":
+            _remove_option(options, "HostName")
+        else:
+            _set_option(options, "HostName", hostname)
+
+    if user is not None:
+        if user == "":
+            _remove_option(options, "User")
+        else:
+            _set_option(options, "User", user)
+
+    if port is not None:
+        _set_option(options, "Port", str(port))
+
+    for entry in extra_options:
+        try:
+            key, value = parse_option_entry(entry)
+        except typer.BadParameter:
+            console.print(
+                f"[red]Options must be supplied as KEY=VALUE (received '{entry}').[/red]"
+            )
+            raise typer.Exit(1)
+        _set_option(options, key, value)
+
+
+def _remove_declared_options(options: List[Tuple[str, str]], remove_option: List[str]) -> None:
+    for key in remove_option:
+        removed = _remove_option(options, key)
+        if not removed:
+            console.print(f"[yellow]Option '{key}' not present; skipping removal.[/yellow]")
+
+
 def register(app: typer.Typer) -> None:
     @app.command("edit")
     def edit_host(
@@ -49,89 +156,14 @@ def register(app: typer.Typer) -> None:
         ),
     ):
         """Edit options or patterns of an existing Host block."""
-        resolved_target = target.expanduser()
-        if not resolved_target.exists():
-            console.print(f"[red]Config file {resolved_target} does not exist.[/red]")
-            raise typer.Exit(1)
+        resolved_target = _resolve_edit_target(target)
+        blocks = _load_blocks_for_target(resolved_target)
+        block = _select_block_for_edit(name, blocks, resolved_target)
+        new_patterns = _compute_patterns(set_pattern, block)
+        options_list = _initial_options(block, clear_options)
 
-        blocks = [
-            block
-            for block in parse_config_files([resolved_target])
-            if block.source_file == resolved_target
-        ]
-
-        _, matched = matching_blocks(name, blocks)
-
-        if not matched:
-            console.print(f"[yellow]No host block matches '{name}' in {resolved_target}.[/yellow]")
-            raise typer.Exit(1)
-
-        if len(matched) > 1:
-            console.print("[red]Multiple host blocks match. Refine your selection:[/red]")
-            for block in matched:
-                console.print(
-                    f"  - {' '.join(block.patterns)} ({block.source_file}:{block.lineno})"
-                )
-            raise typer.Exit(1)
-
-        block = matched[0]
-        if set_pattern is not None and len(set_pattern) == 0:
-            console.print("[red]At least one pattern is required when replacing patterns.[/red]")
-            raise typer.Exit(1)
-
-        new_patterns = list(set_pattern) if set_pattern is not None else list(block.patterns)
-
-        options_list: List[Tuple[str, str]]
-        if clear_options:
-            options_list = []
-        else:
-            options_list = list(block.options.items())
-
-        def set_option_value(key: str, value: str) -> None:
-            lower = key.lower()
-            for idx, (existing_key, _) in enumerate(options_list):
-                if existing_key.lower() == lower:
-                    options_list[idx] = (existing_key, value)
-                    return
-            options_list.append((key, value))
-
-        def remove_option_key(key: str) -> bool:
-            lower = key.lower()
-            for idx, (existing_key, _) in enumerate(options_list):
-                if existing_key.lower() == lower:
-                    del options_list[idx]
-                    return True
-            return False
-
-        if hostname is not None:
-            if hostname == "":
-                remove_option_key("HostName")
-            else:
-                set_option_value("HostName", hostname)
-
-        if user is not None:
-            if user == "":
-                remove_option_key("User")
-            else:
-                set_option_value("User", user)
-
-        if port is not None:
-            set_option_value("Port", str(port))
-
-        for entry in option:
-            try:
-                key, value = parse_option_entry(entry)
-            except typer.BadParameter:
-                console.print(
-                    f"[red]Options must be supplied as KEY=VALUE (received '{entry}').[/red]"
-                )
-                raise typer.Exit(1)
-            set_option_value(key, value)
-
-        for key in remove_option:
-            removed = remove_option_key(key)
-            if not removed:
-                console.print(f"[yellow]Option '{key}' not present; skipping removal.[/yellow]")
+        _apply_option_updates(options_list, hostname, user, port, option)
+        _remove_declared_options(options_list, remove_option)
 
         backup = replace_host_block(resolved_target, block, new_patterns, options_list)
         console.print(
