@@ -1,0 +1,17 @@
+[project]
+name = "sshcli"
+version = "0.1.0"
+description = "A tiny, modern SSH config explorer (Typer + Rich)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "typer[all]",
+  "rich",
+]
+
+[project.scripts]
+sshcli = "sshcli:run"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
