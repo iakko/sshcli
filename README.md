@@ -64,6 +64,9 @@ Use `sshcli help` for an overview and `sshcli COMMAND --help` to inspect options
 | `sshcli edit NAME [options]` | Update patterns or option values in-place. Can clear all existing settings, replace patterns, or remove specific keys. |
 | `sshcli copy SOURCE --name NAME` | Duplicate an existing block into a new entry, preserving options. |
 | `sshcli remove NAME` | Delete matching blocks from a target file, with selection when multiple matches exist. |
+| `sshcli backup list` | Show available backups for a target config with timestamps, file sizes, and paths. |
+| `sshcli backup restore STAMP` | Restore the target config from a specific backup (optionally saving the current state first). |
+| `sshcli backup prune [--keep N] [--before STAMP]` | Prune old backups by keeping the most recent N or dropping everything older than a timestamp. |
 | `sshcli help` | Display a Rich table of available commands and tips. |
 
 ## Configuration discovery
@@ -77,7 +80,7 @@ Use `sshcli help` for an overview and `sshcli COMMAND --help` to inspect options
 
 When writing to an SSH config file, `sshcli` automatically:
 - Creates parent directories as needed.
-- Generates a timestamped backup alongside the original file before modifying existing content.
+- Generates a timestamped backup (stored under `~/.ssh/backups/`) before modifying existing content.
 - Preserves existing spacing and ensures the file ends with a newline.
 
 All mutating commands (`add`, `edit`, `copy`, `remove`) accept `--target PATH` so you can work against alternate configuration files or sandboxed copies.

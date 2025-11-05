@@ -3,7 +3,7 @@ from __future__ import annotations
 import glob
 import os
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
@@ -21,8 +21,10 @@ DEFAULT_INCLUDE_FALLBACKS = [
 
 def _backup_file(path: Path) -> Path:
     """Create a timestamped backup of the given file."""
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    backup_path = path.with_name(f"{path.name}.backup.{timestamp}")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    backup_dir = path.parent / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_path = backup_dir / f"{path.name}.backup.{timestamp}"
     shutil.copy2(path, backup_path)
     return backup_path
 

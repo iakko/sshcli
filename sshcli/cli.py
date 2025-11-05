@@ -6,19 +6,28 @@ from typing import List, Sequence
 import typer
 from typer.main import get_command
 
+from click.exceptions import UsageError
+
 from .commands import register_commands
 from .config import DEFAULT_CONFIG_PATHS, DEFAULT_INCLUDE_FALLBACKS
+from .commands.common import console
 
 app = typer.Typer(help="A tiny, modern SSH config explorer.")
 register_commands(app)
 
 
 def _command_names() -> List[str]:
-    return [
+    command_names = [
         info.name
         for info in app.registered_commands
         if info.name is not None
     ]
+    group_names = [
+        info.name
+        for info in app.registered_groups
+        if info.name is not None
+    ]
+    return command_names + group_names
 
 
 def _rewrite_default_invocation(args: Sequence[str]) -> List[str]:
@@ -52,6 +61,14 @@ def run(argv: Sequence[str] | None = None) -> None:
     rewritten = _rewrite_default_invocation(list(argv))
     try:
         command.main(args=rewritten, prog_name="sshcli", standalone_mode=False)
+    except UsageError as exc:
+        message = exc.format_message()
+        if message:
+            console.print(f"[red]{message}[/red]")
+        if exc.ctx is not None:
+            console.print()
+            console.print(exc.ctx.get_help())
+        return exc.exit_code or 2
     except SystemExit as exc:  # pragma: no cover - passthrough
         raise exc
 

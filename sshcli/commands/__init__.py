@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import typer
 
-from . import add, copy, edit, find, help_cmd, list as list_cmd, remove, show
+from . import add, backup, copy, edit, find, help_cmd, list as list_cmd, remove, show
 
 
 def register_commands(app: typer.Typer) -> None:
     """Register all CLI commands with the Typer app."""
     add.register(app)
+    backup.register(app)
     copy.register(app)
     edit.register(app)
     find.register(app)
