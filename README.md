@@ -15,7 +15,7 @@
 
 ### From source
 ```bash
-git clone https://example.com/sshcli.git
+git clone https://github.com/iakko/sshcli
 cd sshcli
 python -m venv .venv
 source .venv/bin/activate
@@ -88,14 +88,23 @@ All mutating commands (`add`, `edit`, `copy`, `remove`) accept `--target PATH` s
 ## Development
 
 ```bash
-git clone https://example.com/sshcli.git
+git clone https://github.com/iakko/sshcli
 cd sshcli
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
 ```
 
-The project does not yet bundle an automated test suite, so manual verification of commands is recommended. When making changes, run a few representative commands against a sample SSH config to ensure parsing and formatting behave as expected.
+### Testing
+
+Install development dependencies (including `pytest`) and run the suite:
+
+```bash
+python -m pip install -r requirements.txt
+pytest
+```
+
+The tests exercise config parsing, CLI behaviour, and backup tooling by working against temporary files, so they are safe to run on any machine.
 
 ## License
 
