@@ -5,7 +5,7 @@ from typing import List, Tuple
 
 import typer
 
-from ..config import append_host_block, parse_config_files
+from ..config import DEFAULT_HOME_SSH_CONFIG, append_host_block, parse_config_files
 from ..models import HostBlock
 from .common import console, parse_option_entry
 
@@ -74,7 +74,7 @@ def register(app: typer.Typer) -> None:
             help="Additional option in KEY=VALUE form. Repeat for multiple options.",
         ),
         target: Path = typer.Option(
-            Path("~/.ssh/config"),
+            Path(DEFAULT_HOME_SSH_CONFIG),
             "--target",
             "-t",
             help="SSH config file to modify.",
