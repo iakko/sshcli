@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from importlib.metadata import PackageNotFoundError, version as pkg_version
 from typing import List, Sequence
 
 import typer
@@ -14,6 +15,31 @@ from .commands.common import console
 
 app = typer.Typer(help="A tiny, modern SSH config explorer.")
 register_commands(app)
+
+
+def _current_version() -> str:
+    try:
+        return pkg_version("sshcli")
+    except PackageNotFoundError:
+        return "unknown"
+
+
+@app.callback(invoke_without_command=True)
+def _root_callback(
+    ctx: typer.Context,
+    version: bool = typer.Option(
+        False,
+        "--version",
+        help="Show the sshcli version and exit.",
+        is_eager=True,
+    ),
+) -> None:
+    if version:
+        console.print(f"sshcli {_current_version()}")
+        raise typer.Exit()
+    if ctx.invoked_subcommand is None and not ctx.args:
+        console.print(ctx.get_help())
+        raise typer.Exit()
 
 
 def _command_names() -> List[str]:
