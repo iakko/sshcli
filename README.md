@@ -11,7 +11,7 @@
 
 ## Installation
 
-> Requires Python 3.12 or newer.
+> Requires Python 3.10 or newer.
 
 ### From source
 ```bash
