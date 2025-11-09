@@ -1,6 +1,6 @@
 [project]
-name = "sshcli"
-version = "0.1.0"
+name = "ixlab-sshcli"
+version = "0.1.2"
 description = "A tiny, modern SSH config explorer from command line."
 readme = "README.md"
 requires-python = ">=3.10"
