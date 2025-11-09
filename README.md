@@ -2,6 +2,8 @@
 
 `sshcli` is a lightweight command line tool for exploring and editing your OpenSSH client configuration. It discovers `Host` blocks across your SSH config files, renders them with Rich-powered tables, and provides convenient subcommands for searching, inspecting, and managing entries without leaving the terminal.
 
+> **Note:** the published PyPI package is named `ixlab-sshcli`, but it still installs the `sshcli` command-line entry point.
+
 ## Highlights
 - Quick lookup: run `sshcli <host>` to jump straight to a matching `Host` block (with optional `--details`).
 - Rich listings: format hosts, patterns, and key options in compact tables.
@@ -13,6 +15,15 @@
 
 > Requires Python 3.10 or newer.
 
+### From PyPI (recommended)
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install ixlab-sshcli
+```
+
+This installs the latest release and exposes the `sshcli` executable on your `PATH`.
+
 ### From source
 ```bash
 git clone https://github.com/iakko/sshcli
@@ -23,7 +34,7 @@ python -m pip install --upgrade pip
 python -m pip install -e .
 ```
 
-The project depends on `typer[all]`, `rich`, and friends (see `pyproject.toml`). Installing from source pulls in optional extras such as `prompt_toolkit`, enabling interactive host selection when available.
+The project depends on `typer`, `rich`, and friends (see `pyproject.toml`). Installing from source pulls in the same runtime requirements you get from PyPI; optional niceties such as `prompt_toolkit` will be picked up automatically when those packages declare them.
 
 ### Requirements file (optional)
 
@@ -105,6 +116,19 @@ pytest
 ```
 
 The tests exercise config parsing, CLI behaviour, and backup tooling by working against temporary files, so they are safe to run on any machine.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a version-by-version summary of notable updates.
+
+## Roadmap
+
+Upcoming work includes:
+
+- **Known hosts observability:** surface `known_hosts` entries alongside SSH config data to make it easier to audit trust relationships.
+- **SSH key shortcuts:** add helper commands to inspect and reference private keys (e.g., quick copying of `IdentityFile` paths).
+
+If there is a feature you would like to see, feel free to open an issue or pull request.
 
 ## License
 
