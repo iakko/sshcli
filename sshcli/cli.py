@@ -18,10 +18,12 @@ register_commands(app)
 
 
 def _current_version() -> str:
-    try:
-        return pkg_version("sshcli")
-    except PackageNotFoundError:
-        return "unknown"
+    for dist_name in ("ixlab-sshcli", "sshcli"):
+        try:
+            return pkg_version(dist_name)
+        except PackageNotFoundError:
+            continue
+    return "unknown"
 
 
 @app.callback(invoke_without_command=True)
