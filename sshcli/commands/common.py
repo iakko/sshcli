@@ -28,16 +28,7 @@ def matching_blocks(name: str, blocks: List[HostBlock]) -> Tuple[List[HostBlock]
     best_score: Optional[Tuple[int, int, int, int]] = None
 
     for idx, block in enumerate(blocks):
-        block_best: Optional[Tuple[int, int, int, int]] = None
-        for pattern in block.patterns:
-            if not fnmatch.fnmatch(name, pattern):
-                continue
-            literal = 1 if pattern == name else 0
-            wildcard_count = sum(1 for ch in pattern if ch in "*?[]")
-            score = (literal, -wildcard_count, len(pattern), idx)
-            if block_best is None or score > block_best:
-                block_best = score
-
+        block_best = _best_score_for_block(name, block, idx)
         if block_best is None:
             continue
 
@@ -51,6 +42,29 @@ def matching_blocks(name: str, blocks: List[HostBlock]) -> Tuple[List[HostBlock]
 
     primary = [best_block] if best_block is not None else []
     return primary, matched
+
+
+def _best_score_for_block(
+    name: str,
+    block: HostBlock,
+    index: int,
+) -> Optional[Tuple[int, int, int, int]]:
+    block_best: Optional[Tuple[int, int, int, int]] = None
+    for pattern in block.patterns:
+        score = _score_pattern(name, pattern, index)
+        if score is None:
+            continue
+        if block_best is None or score > block_best:
+            block_best = score
+    return block_best
+
+
+def _score_pattern(name: str, pattern: str, index: int) -> Optional[Tuple[int, int, int, int]]:
+    if not fnmatch.fnmatch(name, pattern):
+        return None
+    literal = 1 if pattern == name else 0
+    wildcard_count = sum(1 for ch in pattern if ch in "*?[]")
+    return literal, -wildcard_count, len(pattern), index
 
 
 def parse_option_entry(entry: str) -> Tuple[str, str]:

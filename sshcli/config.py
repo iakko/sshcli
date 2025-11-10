@@ -92,25 +92,22 @@ def parse_config_files(entrypoints: List[Path]) -> List[HostBlock]:
     blocks: List[HostBlock] = []
 
     def parse_one(file_path: Path):
-        if file_path in seen:
+        if not _mark_seen(file_path, seen):
             return
-        seen.add(file_path)
 
         current: Optional[HostBlock] = None
         for lineno, parts in _iter_config_parts(file_path):
             key = parts[0].lower()
 
-            if key == "include" and len(parts) >= 2:
-                include_pattern = " ".join(parts[1:])
-                for included in _expand_path(include_pattern, current_file=file_path):
-                    parse_one(included)
+            if _is_include(key, parts):
+                _parse_include(parts, file_path, parse_one)
                 continue
 
             if key == "match":
                 # Skipped in this minimal viewer.
                 continue
 
-            if key == "host" and len(parts) >= 2:
+            if _is_host_definition(key, parts):
                 patterns = parts[1:]
                 current = _start_new_block(current, patterns, file_path, lineno, blocks)
                 continue
@@ -123,6 +120,27 @@ def parse_config_files(entrypoints: List[Path]) -> List[HostBlock]:
         parse_one(entrypoint)
 
     return blocks
+
+
+def _mark_seen(file_path: Path, seen: set[Path]) -> bool:
+    if file_path in seen:
+        return False
+    seen.add(file_path)
+    return True
+
+
+def _is_include(key: str, parts: List[str]) -> bool:
+    return key == "include" and len(parts) >= 2
+
+
+def _parse_include(parts: List[str], file_path: Path, parser) -> None:
+    include_pattern = " ".join(parts[1:])
+    for included in _expand_path(include_pattern, current_file=file_path):
+        parser(included)
+
+
+def _is_host_definition(key: str, parts: List[str]) -> bool:
+    return key == "host" and len(parts) >= 2
 
 
 def discover_config_files() -> List[Path]:

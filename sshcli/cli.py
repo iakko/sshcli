@@ -97,8 +97,5 @@ def run(argv: Sequence[str] | None = None) -> None:
             console.print()
             console.print(exc.ctx.get_help())
         return exc.exit_code or 2
-    except SystemExit as exc:  # pragma: no cover - passthrough
-        raise exc
-
 
 __all__ = ["app", "run", "DEFAULT_CONFIG_PATHS", "DEFAULT_INCLUDE_FALLBACKS"]
