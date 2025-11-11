@@ -9,7 +9,9 @@ from typing import Iterable, List, Optional, Tuple
 
 from .models import HostBlock
 
-DEFAULT_HOME_SSH_CONFIG = "~/.ssh/config"
+DEFAULT_HOME_SSH = "~/.ssh"
+DEFAULT_HOME_SSH_CONFIG = f"{DEFAULT_HOME_SSH}/config"
+DEFAULT_KEYS_DIR = f"{DEFAULT_HOME_SSH}/keys"
 
 DEFAULT_CONFIG_PATHS = [
     "/etc/ssh/ssh_config",
@@ -270,6 +272,7 @@ def remove_host_block(target: Path, block: HostBlock) -> Optional[Path]:
 
 __all__ = [
     "DEFAULT_CONFIG_PATHS",
+    "DEFAULT_KEYS_DIR",
     "DEFAULT_INCLUDE_FALLBACKS",
     "append_host_block",
     "discover_config_files",
