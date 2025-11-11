@@ -5,7 +5,7 @@ from typing import List
 import typer
 from rich.panel import Panel
 
-from ..config import load_host_blocks
+from .. import config as config_module
 from .common import console, format_block_table, matching_blocks
 
 
@@ -20,7 +20,7 @@ def register(app: typer.Typer) -> None:
         ),
     ):
         """Show the options of a specific Host block."""
-        blocks = load_host_blocks()
+        blocks = config_module.load_host_blocks()
         primary_blocks, matched_blocks = matching_blocks(name, blocks)
 
         if not matched_blocks:

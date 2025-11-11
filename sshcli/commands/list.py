@@ -6,7 +6,7 @@ import typer
 from rich import box
 from rich.table import Table
 
-from ..config import load_host_blocks
+from .. import config as config_module
 from .common import console
 
 
@@ -19,7 +19,7 @@ def register(app: typer.Typer) -> None:
         files: bool = typer.Option(False, "--files", help="Show origin file and line for each block."),
     ):
         """List Host blocks discovered in your SSH configs."""
-        blocks = load_host_blocks()
+        blocks = config_module.load_host_blocks()
         if not blocks:
             console.print("[yellow]No SSH host blocks found.[/yellow]")
             raise typer.Exit(code=0)

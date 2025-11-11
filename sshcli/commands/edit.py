@@ -5,7 +5,7 @@ from typing import List, Optional, Tuple
 
 import typer
 
-from ..config import parse_config_files, replace_host_block
+from .. import config as config_module
 from ..models import HostBlock
 from .common import console, matching_blocks, parse_option_entry
 
@@ -21,7 +21,7 @@ def _resolve_edit_target(target: Path) -> Path:
 def _load_blocks_for_target(resolved_target: Path) -> List[HostBlock]:
     return [
         block
-        for block in parse_config_files([resolved_target])
+        for block in config_module.parse_config_files([resolved_target])
         if block.source_file == resolved_target
     ]
 
@@ -165,7 +165,7 @@ def register(app: typer.Typer) -> None:
         _apply_option_updates(options_list, hostname, user, port, option)
         _remove_declared_options(options_list, remove_option)
 
-        backup = replace_host_block(resolved_target, block, new_patterns, options_list)
+        backup = config_module.replace_host_block(resolved_target, block, new_patterns, options_list)
         console.print(
             f"[green]Updated Host block {' '.join(new_patterns)} in {resolved_target}.[/green]"
         )

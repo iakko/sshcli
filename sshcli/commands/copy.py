@@ -4,7 +4,7 @@ from pathlib import Path
 
 import typer
 
-from ..config import DEFAULT_HOME_SSH_CONFIG, append_host_block, parse_config_files
+from .. import config as config_module
 from .common import console, matching_blocks
 
 
@@ -19,7 +19,7 @@ def register(app: typer.Typer) -> None:
             help="Name for the new Host block.",
         ),
         target: Path = typer.Option(
-            Path(DEFAULT_HOME_SSH_CONFIG),
+            Path(config_module.DEFAULT_HOME_SSH_CONFIG),
             "--target",
             "-t",
             help="SSH config file to append to.",
@@ -42,7 +42,7 @@ def register(app: typer.Typer) -> None:
 
         blocks = [
             block
-            for block in parse_config_files([resolved_target])
+            for block in config_module.parse_config_files([resolved_target])
             if block.source_file == resolved_target
         ]
 
@@ -71,7 +71,7 @@ def register(app: typer.Typer) -> None:
         new_patterns = [name]
         new_options = list(source_block.options.items())
 
-        backup = append_host_block(resolved_target, new_patterns, new_options)
+        backup = config_module.append_host_block(resolved_target, new_patterns, new_options)
         console.print(
             f"[green]Copied Host block '{source_block.patterns[0]}' to new block '{name}' in {resolved_target}.[/green]"
         )

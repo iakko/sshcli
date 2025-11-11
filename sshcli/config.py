@@ -1,5 +1,9 @@
 from __future__ import annotations
 
-"""Compatibility layer forwarding to the core configuration logic."""
+"""Compatibility shim: importers of `sshcli.config` get the core config module."""
 
-from .core.config import *  # noqa: F401,F403
+import sys as _sys
+
+from .core import config as _core_config
+
+_sys.modules[__name__] = _core_config

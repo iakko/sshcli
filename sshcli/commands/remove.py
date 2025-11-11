@@ -5,7 +5,7 @@ from typing import List
 
 import typer
 
-from ..config import parse_config_files, remove_host_block
+from .. import config as config_module
 from ..models import HostBlock
 from .common import console, matching_blocks
 
@@ -21,7 +21,7 @@ def _resolve_target(target: Path) -> Path:
 def _load_blocks_for_target(resolved_target: Path) -> List[HostBlock]:
     return [
         block
-        for block in parse_config_files([resolved_target])
+        for block in config_module.parse_config_files([resolved_target])
         if block.source_file == resolved_target
     ]
 
@@ -87,7 +87,7 @@ def register(app: typer.Typer) -> None:
         ordered_blocks: List[HostBlock] = sorted(selected, key=lambda b: b.lineno, reverse=True)
 
         for block in ordered_blocks:
-            backup = remove_host_block(resolved_target, block)
+            backup = config_module.remove_host_block(resolved_target, block)
             console.print(
                 f"[green]Removed Host block {' '.join(block.patterns)} from {resolved_target}.[/green]"
             )

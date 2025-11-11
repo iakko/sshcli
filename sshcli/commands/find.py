@@ -7,7 +7,7 @@ import typer
 from rich import box
 from rich.table import Table
 
-from ..config import load_host_blocks
+from .. import config as config_module
 from ..models import HostBlock
 from .common import console
 
@@ -18,7 +18,7 @@ def register(app: typer.Typer) -> None:
         query: str = typer.Argument(..., help="Substring or wildcard pattern to search in Host patterns or HostName."),
     ):
         """Search Host blocks by pattern (wildcards) or HostName substring."""
-        blocks = load_host_blocks()
+        blocks = config_module.load_host_blocks()
         hits: List[Tuple[str, HostBlock]] = []
 
         for block in blocks:

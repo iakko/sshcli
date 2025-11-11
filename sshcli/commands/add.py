@@ -5,7 +5,7 @@ from typing import List, Tuple
 
 import typer
 
-from ..config import DEFAULT_HOME_SSH_CONFIG, append_host_block, parse_config_files
+from .. import config as config_module
 from ..models import HostBlock
 from .common import console, parse_option_entry
 
@@ -41,7 +41,7 @@ def _load_existing_blocks(resolved_target: Path) -> List[HostBlock]:
         return []
     return [
         block
-        for block in parse_config_files([resolved_target])
+        for block in config_module.parse_config_files([resolved_target])
         if block.source_file == resolved_target
     ]
 
@@ -74,7 +74,7 @@ def register(app: typer.Typer) -> None:
             help="Additional option in KEY=VALUE form. Repeat for multiple options.",
         ),
         target: Path = typer.Option(
-            Path(DEFAULT_HOME_SSH_CONFIG),
+            Path(config_module.DEFAULT_HOME_SSH_CONFIG),
             "--target",
             "-t",
             help="SSH config file to modify.",
@@ -95,7 +95,7 @@ def register(app: typer.Typer) -> None:
         existing_blocks = _load_existing_blocks(resolved_target)
         _guard_duplicates(patterns, existing_blocks, force)
 
-        backup = append_host_block(resolved_target, patterns, options)
+        backup = config_module.append_host_block(resolved_target, patterns, options)
         console.print(
             f"[green]Added Host block for {' '.join(patterns)} to {resolved_target}.[/green]"
         )
