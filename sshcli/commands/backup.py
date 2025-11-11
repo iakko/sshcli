@@ -1,58 +1,29 @@
 from __future__ import annotations
 
 import shutil
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import List, Optional
 
 import click
 import typer
 from rich import box
 from rich.table import Table
 
-from .. import config as config_module
+from ..config import DEFAULT_HOME_SSH_CONFIG
+from ..core import backups as backups_core
 from .common import console
 from typer.main import get_command
 
 backup_app = typer.Typer(help="Inspect, restore, and prune SSH config backups.")
 
 
-@dataclass
-class BackupEntry:
-    path: Path
-    stamp: str
-    timestamp: Optional[datetime]
-    size: int
-
-    @property
-    def sort_key(self) -> float:
-        if self.timestamp is not None:
-            return self.timestamp.timestamp()
-        return self.path.stat().st_mtime
-
-
 def _default_target() -> Path:
-    return Path(config_module.DEFAULT_HOME_SSH_CONFIG)
+    return Path(DEFAULT_HOME_SSH_CONFIG)
 
 
 def _expand_target(target: Path) -> Path:
     return target.expanduser()
-
-
-def _parse_timestamp(value: str) -> Optional[datetime]:
-    try:
-        naive = datetime.strptime(value, "%Y%m%d%H%M%S")
-    except ValueError:
-        return None
-    dt_utc = naive.replace(tzinfo=timezone.utc)
-    now_utc = datetime.now(tz=timezone.utc)
-    if dt_utc - now_utc > timedelta(minutes=5):
-        local_tz = datetime.now().astimezone().tzinfo
-        if local_tz is not None:
-            dt_local = naive.replace(tzinfo=local_tz)
-            dt_utc = dt_local.astimezone(timezone.utc)
-    return dt_utc
 
 
 def _format_timestamp(dt: Optional[datetime]) -> str:
@@ -93,56 +64,6 @@ def _format_size(size: int) -> str:
     return f"{size:.1f}GB"
 
 
-def _discover_backups(target: Path) -> List[BackupEntry]:
-    resolved = _expand_target(target)
-    parent = resolved.parent
-    backup_dir = parent / "backups"
-
-    if not backup_dir.exists():
-        return []
-
-    prefix = f"{resolved.name}.backup."
-    entries: List[BackupEntry] = []
-
-    seen_paths: set[Path] = set()
-
-    for candidate in backup_dir.glob(f"{resolved.name}.backup.*"):
-        if not candidate.is_file():
-            continue
-        if candidate in seen_paths:
-            continue
-        seen_paths.add(candidate)
-        stamp = candidate.name[len(prefix):]
-        timestamp = _parse_timestamp(stamp)
-        entries.append(
-            BackupEntry(
-                path=candidate,
-                stamp=stamp,
-                timestamp=timestamp,
-                size=candidate.stat().st_size,
-            )
-        )
-
-    return sorted(entries, key=lambda entry: entry.sort_key, reverse=True)
-
-
-def _select_backup(identifier: str, backups: Sequence[BackupEntry]) -> Optional[BackupEntry]:
-    for entry in backups:
-        if (
-            entry.stamp == identifier
-            or entry.path.name == identifier
-            or str(entry.path) == identifier
-        ):
-            return entry
-    return None
-
-
-def _create_backup(target: Path) -> Optional[Path]:
-    if not target.exists():
-        return None
-    return config_module._backup_file(target)
-
-
 @backup_app.command("list")
 def list_backups(
     target: Path = typer.Option(
@@ -154,7 +75,7 @@ def list_backups(
     ),
 ):
     """Display available backups for the selected SSH config."""
-    backups = _discover_backups(target)
+    backups = backups_core.discover_backups(target)
     if not backups:
         console.print("[yellow]No backups found for the selected config.[/yellow]")
         raise typer.Exit(code=0)
@@ -199,12 +120,12 @@ def restore_backup(
     ),
 ):
     """Restore the config from a specific backup."""
-    backups = _discover_backups(target)
+    backups = backups_core.discover_backups(target)
     if not backups:
         console.print("[red]No backups available to restore.[/red]")
         raise typer.Exit(code=1)
 
-    entry = _select_backup(identifier, backups)
+    entry = backups_core.select_backup(identifier, backups)
     if entry is None:
         console.print(f"[red]Backup '{identifier}' not found.[/red]")
         raise typer.Exit(code=1)
@@ -213,7 +134,7 @@ def restore_backup(
     resolved_target.parent.mkdir(parents=True, exist_ok=True)
 
     if create_backup and resolved_target.exists():
-        backup_path = _create_backup(resolved_target)
+        backup_path = backups_core.create_backup(resolved_target)
         if backup_path is not None:
             console.print(f"[dim]Current config backed up to {backup_path}.[/dim]")
 
@@ -252,7 +173,7 @@ def prune_backups(
 ):
     """Delete old backups by count or timestamp."""
     cutoff = _validate_prune_arguments(keep, before)
-    backups = _discover_backups(target)
+    backups = backups_core.discover_backups(target)
     if not backups:
         console.print("[yellow]No backups found.[/yellow]")
         raise typer.Exit(code=0)
@@ -288,7 +209,7 @@ def _validate_prune_arguments(keep: Optional[int], before: Optional[str]) -> Opt
 
     if before is None:
         return None
-    cutoff = _parse_timestamp(before)
+    cutoff = backups_core.parse_backup_timestamp(before)
     if cutoff is None:
         console.print("[red]--before must be in YYYYMMDDHHMMSS format.[/red]")
         raise typer.Exit(code=1)
@@ -296,11 +217,11 @@ def _validate_prune_arguments(keep: Optional[int], before: Optional[str]) -> Opt
 
 
 def _select_backups_to_remove(
-    backups: List[BackupEntry],
+    backups: List[backups_core.BackupEntry],
     keep: Optional[int],
     cutoff: Optional[datetime],
 ) -> List[Path]:
-    candidates: List[BackupEntry] = []
+    candidates: List[backups_core.BackupEntry] = []
 
     if keep is not None and keep < len(backups):
         candidates.extend(backups[keep:])
