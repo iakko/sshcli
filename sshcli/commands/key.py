@@ -24,6 +24,10 @@ _PRIVATE_FORMAT_OPTIONS = ", ".join(sorted(_PRIVATE_FORMAT_LOOKUP))
 _PUBLIC_FORMAT_OPTIONS = ", ".join(sorted(_PUBLIC_FORMAT_LOOKUP))
 _ENCODING_OPTIONS = ", ".join(sorted(_ENCODING_LOOKUP))
 
+_OUTPUT_YES = "[green]yes[/green]"
+_OUTPUT_NO = "[red]no[/red]"
+_OUTPUT_PARTIAL = "[yellow]partial[/yellow]"
+
 def _get_private_key_format(format_str: str) -> serialization.PrivateFormat:
     format_str = format_str.lower()
 
@@ -181,7 +185,7 @@ def _collect_file_details(path: Path) -> dict[str, object]:
     return info
 
 def _format_exists(flag: bool) -> str:
-    return "[green]yes[/green]" if flag else "[red]no[/red]"
+    return _OUTPUT_YES if flag else _OUTPUT_NO
 
 @key_app.command("add")
 def add_key(
@@ -317,7 +321,7 @@ def show_key(
     error_public = _value(pub_info, "error") if pub_info.get("error") else "—"
     table.add_row("Errors", error_private, error_public)
 
-    pair_status = "[green]yes[/green]" if priv_exists and pub_exists else "[yellow]partial[/yellow]"
+    pair_status = _OUTPUT_YES if priv_exists and pub_exists else _OUTPUT_PARTIAL
     table.add_row("Pair Complete", pair_status, pair_status)
 
     console.print(table)
@@ -358,7 +362,7 @@ def _build_key_table(key_path: Path, pairs: dict[str, dict[str, bool]]) -> Table
         pub_path = key_path / f"{base_name}.pub"
 
         pair_exists = entry["priv"] and entry["pub"]
-        pair_status = "[green]yes[/green]" if pair_exists else "[yellow]no[/yellow]"
+        pair_status = _OUTPUT_YES if pair_exists else _OUTPUT_NO
 
         details: list[str] = []
         if entry["priv"]:
