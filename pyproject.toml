@@ -17,10 +17,14 @@ urls = { Homepage = "https://github.com/iakko/sshcli" }
 
 [project.scripts]
 sshcli = "sshcli:run"
+sshui = "ui:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["sshcli", "ui"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"
