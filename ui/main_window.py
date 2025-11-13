@@ -46,7 +46,6 @@ class MainWindow(QMainWindow):
         self.resize(900, 520)
         self._host_list: QListWidget
         self._options_table: QTableWidget
-        self._status_label: QLabel
         self._blocks: List[HostBlock] = []
         self._visible_blocks: List[HostBlock] = []
         self._viewer_windows: List[QDialog] = []
@@ -61,12 +60,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._build_button_panel(), alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(self._build_splitter())
         layout.addWidget(self._build_details_panel())
-        layout.addWidget(self._build_status_label())
 
-        layout.setStretch(0, 0)  # button column
+        layout.setStretch(0, 0)  # button panel
         layout.setStretch(1, 1)  # splitter takes most height
-        layout.setStretch(2, 0)  # details panel
-        layout.setStretch(3, 0)  # status label
+        layout.setStretch(2, 0)  # SSH command panel
 
         self.setCentralWidget(central)
 
@@ -92,57 +89,43 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(1, 2)
         return splitter
 
-    def _build_status_label(self) -> QLabel:
-        self._status_label = QLabel("Ready")
-        self._status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        return self._status_label
+
 
     def _build_details_panel(self) -> QWidget:
         container = QWidget()
-        layout = QVBoxLayout(container)
+        layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(8)
 
-        info_row = QHBoxLayout()
-        info_row.setSpacing(12)
-
-        self._details_label = QLabel("No host selected")
-        self._details_label.setWordWrap(True)
-        info_row.addWidget(self._details_label, stretch=1)
-
-        open_button = QPushButton("Open Config")
-        open_button.clicked.connect(self._open_host_file)  # type: ignore[arg-type]
-        info_row.addWidget(open_button)
-        layout.addLayout(info_row)
-
-        command_row = QHBoxLayout()
-        command_row.setSpacing(6)
-        command_label = QLabel("SSH command")
-        command_row.addWidget(command_label)
-
+        # SSH command section
         self._ssh_command_field = QLineEdit()
         self._ssh_command_field.setReadOnly(True)
-        command_row.addWidget(self._ssh_command_field, stretch=1)
+        self._ssh_command_field.setPlaceholderText("SSH command")
+        layout.addWidget(self._ssh_command_field, stretch=1)
 
         copy_button = QPushButton("Copy")
         copy_button.clicked.connect(self._copy_ssh_command)  # type: ignore[arg-type]
-        command_row.addWidget(copy_button)
+        layout.addWidget(copy_button)
 
-        layout.addLayout(command_row)
         return container
 
 
     def _update_details_label(self, block: Optional[HostBlock]) -> None:
         if block is None:
-            self._details_label.setText("No host selected")
+            count = len(self._blocks)
+            self._config_info_label.setText(f"Loaded {count} host{'s' if count != 1 else ''}")
             self._update_command_field(None)
             return
+        
+        # Format: filename:line | HostName: value | Loaded X hosts
         hostnames = block.options.get("HostName", "")
+        count = len(self._blocks)
         parts = [f"{block.source_file}:{block.lineno}"]
         if hostnames:
             parts.append(f"HostName: {hostnames}")
-        parts.append(f"Options: {len(block.options)}")
-        self._details_label.setText(" | ".join(parts))
+        parts.append(f"Loaded {count} host{'s' if count != 1 else ''}")
+        
+        self._config_info_label.setText(" | ".join(parts))
         self._update_command_field(block)
 
     def _update_command_field(self, block: Optional[HostBlock]) -> None:
@@ -201,12 +184,12 @@ class MainWindow(QMainWindow):
         filter_row.setContentsMargins(0, 0, 0, 0)
         filter_row.setSpacing(4)
 
-        filter_label = QLabel("Filter hosts")
+        filter_label = QLabel("Filter")
         filter_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         filter_row.addWidget(filter_label)
 
         self._filter_mode = QComboBox()
-        self._filter_mode.addItems(["Host", "Options", "Both"])
+        self._filter_mode.addItems(["Hosts", "Options", "Both"])
         self._filter_mode.currentIndexChanged.connect(lambda _state: self._apply_host_filter())
         filter_row.addWidget(self._filter_mode)
 
@@ -248,6 +231,19 @@ class MainWindow(QMainWindow):
         self._options_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._options_table.customContextMenuRequested.connect(self._show_option_context_menu)  # type: ignore[arg-type]
         layout.addWidget(self._options_table)
+
+        # Info row below options table
+        info_row = QHBoxLayout()
+        info_row.setSpacing(8)
+
+        self._config_info_label = QLabel("No host selected")
+        info_row.addWidget(self._config_info_label, stretch=1)
+
+        open_button = QPushButton("Open Config")
+        open_button.clicked.connect(self._open_host_file)  # type: ignore[arg-type]
+        info_row.addWidget(open_button)
+
+        layout.addLayout(info_row)
         return panel
 
     def _make_button(self, label: str, slot: Callable[[], None]) -> QPushButton:
@@ -270,7 +266,7 @@ class MainWindow(QMainWindow):
             blocks = config_module.load_host_blocks()
         except Exception as exc:  # pragma: no cover - UI feedback
             QMessageBox.critical(self, "Error", f"Failed to load hosts:\n{exc}")
-            self._status_label.setText("Failed to load hosts")
+            self._config_info_label.setText("Failed to load hosts")
             return
 
         self._blocks = blocks
@@ -282,7 +278,9 @@ class MainWindow(QMainWindow):
             self._update_details_label(None)
 
         count = len(blocks)
-        self._status_label.setText(f"Loaded {count} host{'s' if count != 1 else ''}.")
+        # Update the info label to show host count when no host is selected
+        if not blocks or self._host_list.currentRow() < 0:
+            self._config_info_label.setText(f"Loaded {count} host{'s' if count != 1 else ''}")
 
     def _populate_host_list(self) -> None:
         self._host_list.clear()
