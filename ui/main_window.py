@@ -342,13 +342,6 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(4, 2, 4, 2)
         layout.setSpacing(6)
         
-        # Add colored dot indicator if block has color
-        if block.color:
-            color_label = QLabel("●")
-            qcolor = self._map_color_name_to_qcolor(block.color)
-            color_label.setStyleSheet(f"color: rgb({qcolor.red()}, {qcolor.green()}, {qcolor.blue()}); font-size: 14px;")
-            layout.addWidget(color_label)
-        
         # Add host name
         host_name = ", ".join(block.names_for_listing or block.patterns)
         name_label = QLabel(host_name)
@@ -357,25 +350,33 @@ class MainWindow(QMainWindow):
         # Add tag badges
         if block.tags:
             for tag in block.tags:
-                tag_label = self._create_tag_badge_widget(tag)
+                tag_label = self._create_tag_badge_widget(tag, block.color)
                 layout.addWidget(tag_label)
         
         layout.addStretch()
         return widget
     
-    def _create_tag_badge_widget(self, tag: str) -> QLabel:
+    def _create_tag_badge_widget(self, tag: str, color: Optional[str]) -> QLabel:
         """Create a styled tag badge widget."""
         label = QLabel(tag)
+        
+        bckcolor: str = "#e0e0e0"
+        
+        if color:
+            qcolor: QColor = self._map_color_name_to_qcolor(color)
+            bckcolor = f"rgb({qcolor.red()}, {qcolor.green()}, {qcolor.blue()})"
+            
         # Tag badge styling: light background, padding, rounded corners
-        label.setStyleSheet("""
-            QLabel {
-                background-color: #e0e0e0;
+        label.setStyleSheet(f"""
+            QLabel {{
+                background-color: {bckcolor};
                 color: #333333;
                 padding: 2px 6px;
                 border-radius: 5px;
                 font-size: 10px;
-            }
+            }}
         """)
+        
         return label
     
     def _map_color_name_to_qcolor(self, color_name: str) -> QColor:
