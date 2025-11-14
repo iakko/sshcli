@@ -5,7 +5,7 @@ from typing import Callable, List, Optional
 import shlex
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QFontDatabase
+from PyQt6.QtGui import QFont, QFontDatabase, QColor
 from PyQt6.QtWidgets import (
     QApplication,
     QLabel,
@@ -29,12 +29,16 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QTextEdit,
     QDialog,
+    QTabWidget,
+    QTreeWidget,
+    QTreeWidgetItem,
 )
 
 from sshcli import config as config_module
 from sshcli.models import HostBlock
 from .option_dialog import OptionDialog
 from .text_prompt_dialog import TextPromptDialog
+from .tag_dialog import TagDialog
 
 
 class MainWindow(QMainWindow):
@@ -45,10 +49,13 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("SSH-UI: The sshcli frontend!")
         self.resize(900, 520)
         self._host_list: QListWidget
+        self._host_tree: QTreeWidget
         self._options_table: QTableWidget
         self._blocks: List[HostBlock] = []
         self._visible_blocks: List[HostBlock] = []
         self._viewer_windows: List[QDialog] = []
+        self._current_list_item_index: int = -1
+        self._current_tree_item: QTreeWidgetItem | None = None
 
         self._setup_ui()
         self.load_hosts()
@@ -200,11 +207,55 @@ class MainWindow(QMainWindow):
 
         layout.addLayout(filter_row)
 
+        # Tag filter row
+        tag_filter_row = QHBoxLayout()
+        tag_filter_row.setContentsMargins(0, 0, 0, 0)
+        tag_filter_row.setSpacing(4)
+
+        tag_label = QLabel("Tag")
+        tag_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        tag_filter_row.addWidget(tag_label)
+
+        self._tag_filter = QComboBox()
+        self._tag_filter.currentIndexChanged.connect(lambda _state: self._apply_host_filter())
+        tag_filter_row.addWidget(self._tag_filter, stretch=1)
+
+        layout.addLayout(tag_filter_row)
+
+        # Create tabbed widget for flat and tree views
+        self._view_tabs = QTabWidget()
+        
+        # Flat list view (existing)
         self._host_list = QListWidget()
-        self._host_list.currentRowChanged.connect(self._show_host_details)  # type: ignore[arg-type]
+        self._host_list.currentRowChanged.connect(self._show_host_details_from_list)  # type: ignore[arg-type]
         self._host_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        layout.addWidget(self._host_list)
+        self._host_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._host_list.customContextMenuRequested.connect(self._show_host_context_menu)  # type: ignore[arg-type]
+        
+        # Tree view grouped by tags
+        self._host_tree = QTreeWidget()
+        self._host_tree.setHeaderHidden(True)
+        self._host_tree.currentItemChanged.connect(self._show_host_details_from_tree)  # type: ignore[arg-type]
+        self._host_tree.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._host_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._host_tree.customContextMenuRequested.connect(self._show_host_context_menu_tree)  # type: ignore[arg-type]
+        
+        # Binding tabs to widget
+        self._view_tabs.addTab(self._host_list, "Flat View")
+        self._view_tabs.addTab(self._host_tree, "Tag View")
+        
+        # Listening on tab change to render content accordingly
+        self._view_tabs.currentChanged.connect(self._host_tab_switched)
+        
+        layout.addWidget(self._view_tabs)
+        
         return panel
+    
+    def _host_tab_switched(self, index: int) -> None:
+        if index == 0:
+            self._update_host_details_from_list()
+        elif index == 1:
+            self._update_host_details_from_tree()
 
     def _build_options_panel(self) -> QWidget:
         panel = QWidget()
@@ -270,7 +321,9 @@ class MainWindow(QMainWindow):
             return
 
         self._blocks = blocks
+        self._populate_tag_filter()
         self._populate_host_list()
+        self._populate_host_tree()
         if blocks:
             self._host_list.setCurrentRow(0)
         else:
@@ -282,19 +335,144 @@ class MainWindow(QMainWindow):
         if not blocks or self._host_list.currentRow() < 0:
             self._config_info_label.setText(f"Loaded {count} host{'s' if count != 1 else ''}")
 
+    def _create_host_list_item_widget(self, block: HostBlock) -> QWidget:
+        """Create a custom widget for displaying a host with tags and color."""
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setSpacing(6)
+        
+        # Add colored dot indicator if block has color
+        if block.color:
+            color_label = QLabel("●")
+            qcolor = self._map_color_name_to_qcolor(block.color)
+            color_label.setStyleSheet(f"color: rgb({qcolor.red()}, {qcolor.green()}, {qcolor.blue()}); font-size: 14px;")
+            layout.addWidget(color_label)
+        
+        # Add host name
+        host_name = ", ".join(block.names_for_listing or block.patterns)
+        name_label = QLabel(host_name)
+        layout.addWidget(name_label)
+        
+        # Add tag badges
+        if block.tags:
+            for tag in block.tags:
+                tag_label = self._create_tag_badge_widget(tag)
+                layout.addWidget(tag_label)
+        
+        layout.addStretch()
+        return widget
+    
+    def _create_tag_badge_widget(self, tag: str) -> QLabel:
+        """Create a styled tag badge widget."""
+        label = QLabel(tag)
+        # Tag badge styling: light background, padding, rounded corners
+        label.setStyleSheet("""
+            QLabel {
+                background-color: #e0e0e0;
+                color: #333333;
+                padding: 2px 6px;
+                border-radius: 5px;
+                font-size: 10px;
+            }
+        """)
+        return label
+    
+    def _map_color_name_to_qcolor(self, color_name: str) -> QColor:
+        """Map color names to QColor values."""
+        color_map = {
+            "red": QColor(220, 50, 47),
+            "green": QColor(133, 153, 0),
+            "blue": QColor(38, 139, 210),
+            "yellow": QColor(181, 137, 0),
+            "orange": QColor(203, 75, 22),
+            "purple": QColor(108, 113, 196),
+            "cyan": QColor(42, 161, 152),
+            "magenta": QColor(211, 54, 130),
+            "gray": QColor(147, 161, 161),
+            "grey": QColor(147, 161, 161),
+        }
+        # Try to get from map, otherwise try to parse as hex or return default
+        if color_name.lower() in color_map:
+            return color_map[color_name.lower()]
+        # Try to parse as hex color
+        qcolor = QColor(color_name)
+        if qcolor.isValid():
+            return qcolor
+        # Default to gray if color is not recognized
+        return QColor(147, 161, 161)
+
+    def _populate_tag_filter(self) -> None:
+        """Populate the tag filter dropdown with all unique tags and their counts."""
+        if not hasattr(self, "_tag_filter"):
+            return
+        
+        # Collect all tags and count occurrences
+        tag_counts: dict[str, int] = {}
+        for block in self._blocks:
+            for tag in block.tags:
+                tag_counts[tag] = tag_counts.get(tag, 0) + 1
+        
+        # Block signals to prevent triggering filter during population
+        self._tag_filter.blockSignals(True)
+        self._tag_filter.clear()
+        
+        # Add "All" option as the first item
+        self._tag_filter.addItem("All")
+        
+        # Add tags sorted alphabetically with counts
+        for tag in sorted(tag_counts.keys()):
+            count = tag_counts[tag]
+            self._tag_filter.addItem(f"{tag} ({count})")
+        
+        # Restore signals
+        self._tag_filter.blockSignals(False)
+
+    def _get_selected_tag(self) -> Optional[str]:
+        """Get the currently selected tag from the tag filter dropdown.
+        
+        Returns:
+            The tag name if a specific tag is selected, or None if "All" is selected.
+        """
+        if not hasattr(self, "_tag_filter"):
+            return None
+        
+        selected_text = self._tag_filter.currentText()
+        if not selected_text or selected_text == "All":
+            return None
+        
+        # Extract tag name from "tag (count)" format
+        if " (" in selected_text:
+            return selected_text.split(" (")[0]
+        
+        return selected_text
+
     def _populate_host_list(self) -> None:
         self._host_list.clear()
         query = (self._host_filter.text() if hasattr(self, "_host_filter") else "").lower()
         mode_widget = getattr(self, "_filter_mode", None)
         mode = mode_widget.currentText().lower() if mode_widget else "host"
+        
+        # Apply text filter
         filtered = [block for block in self._blocks if not query or self._matches_filter(block, query, mode)]
+        
+        # Apply tag filter
+        if hasattr(self, "_tag_filter"):
+            selected_tag = self._get_selected_tag()
+            if selected_tag:  # If a specific tag is selected (not "All")
+                filtered = [block for block in filtered if block.has_tag(selected_tag)]
+        
         self._visible_blocks = filtered
         for block in filtered:
-            title = ", ".join(block.names_for_listing or block.patterns)
+            # Create custom widget for the list item
+            widget = self._create_host_list_item_widget(block)
+            
             detail = f"{block.source_file}:{block.lineno}"
-            item = QListWidgetItem(title)
+            item = QListWidgetItem()
             item.setToolTip(detail)
+            item.setSizeHint(widget.sizeHint())
             self._host_list.addItem(item)
+            self._host_list.setItemWidget(item, widget)
         if not filtered:
             self._options_table.setRowCount(0)
             self._update_details_label(None)
@@ -312,9 +490,86 @@ class MainWindow(QMainWindow):
             haystacks = haystacks[3:]  # only option entries
         return any(query in text.lower() for text in haystacks if text)
 
+    def _populate_host_tree(self) -> None:
+        """Populate the tree view with hosts grouped by tags."""
+        self._host_tree.clear()
+        
+        query = (self._host_filter.text() if hasattr(self, "_host_filter") else "").lower()
+        mode_widget = getattr(self, "_filter_mode", None)
+        mode = mode_widget.currentText().lower() if mode_widget else "host"
+        
+        # Apply text filter
+        filtered = [block for block in self._blocks if not query or self._matches_filter(block, query, mode)]
+        
+        # Apply tag filter
+        if hasattr(self, "_tag_filter"):
+            selected_tag = self._get_selected_tag()
+            if selected_tag:  # If a specific tag is selected (not "All")
+                filtered = [block for block in filtered if block.has_tag(selected_tag)]
+        
+        # Group hosts by tags
+        tag_groups: dict[str, List[HostBlock]] = {}
+        untagged: List[HostBlock] = []
+        
+        for block in filtered:
+            if not block.tags:
+                untagged.append(block)
+            else:
+                for tag in block.tags:
+                    if tag not in tag_groups:
+                        tag_groups[tag] = []
+                    tag_groups[tag].append(block)
+        
+        # Add tagged groups
+        for tag in sorted(tag_groups.keys()):
+            tag_item = QTreeWidgetItem(self._host_tree)
+            tag_item.setText(0, f"[{tag}] ({len(tag_groups[tag])})")
+            tag_item.setExpanded(True)
+            
+            for block in tag_groups[tag]:
+                host_item = QTreeWidgetItem(tag_item)
+                host_name = ", ".join(block.names_for_listing or block.patterns)
+                
+                # Add color indicator if present
+                if block.color:
+                    host_item.setText(0, f"● {host_name}")
+                    qcolor = self._map_color_name_to_qcolor(block.color)
+                    host_item.setForeground(0, qcolor)
+                else:
+                    host_item.setText(0, host_name)
+                
+                # Store the block in the item's data
+                host_item.setData(0, Qt.ItemDataRole.UserRole, block)
+                host_item.setToolTip(0, f"{block.source_file}:{block.lineno}")
+        
+        # Add untagged hosts
+        if untagged:
+            untagged_item = QTreeWidgetItem(self._host_tree)
+            untagged_item.setText(0, f"[Untagged] ({len(untagged)})")
+            untagged_item.setExpanded(True)
+            
+            for block in untagged:
+                host_item = QTreeWidgetItem(untagged_item)
+                host_name = ", ".join(block.names_for_listing or block.patterns)
+                
+                # Add color indicator if present
+                if block.color:
+                    host_item.setText(0, f"● {host_name}")
+                    qcolor = self._map_color_name_to_qcolor(block.color)
+                    host_item.setForeground(0, qcolor)
+                else:
+                    host_item.setText(0, host_name)
+                
+                # Store the block in the item's data
+                host_item.setData(0, Qt.ItemDataRole.UserRole, block)
+                host_item.setToolTip(0, f"{block.source_file}:{block.lineno}")
+
     def _apply_host_filter(self) -> None:
         selected = self._current_block()
         self._populate_host_list()
+        self._populate_host_tree()
+        
+        # Update selection in flat view
         if selected and selected in self._visible_blocks:
             self._host_list.setCurrentRow(self._visible_blocks.index(selected))
         elif self._visible_blocks:
@@ -323,12 +578,12 @@ class MainWindow(QMainWindow):
             self._host_list.setCurrentRow(-1)
             self._update_details_label(None)
 
-    def _show_host_details(self, index: int) -> None:
-        if index < 0 or index >= len(self._visible_blocks):
+    def _show_host_details(self, block: Optional[HostBlock]) -> None:
+        """Display details for a given host block."""
+        if block is None:
             self._options_table.setRowCount(0)
             self._update_details_label(None)
             return
-        block = self._visible_blocks[index]
         items = sorted(block.options.items(), key=lambda kv: kv[0].lower())
         self._options_table.setRowCount(len(items))
         for row, (key, value) in enumerate(items):
@@ -340,26 +595,95 @@ class MainWindow(QMainWindow):
             self._options_table.setItem(row, 1, value_item)
         self._update_details_label(block)
 
+    def _show_host_details_from_list(self, index: int) -> None:
+        """Handle selection change in flat list view."""
+        self._current_list_item_index = index
+        self._update_host_details_from_list()
+
+    def _update_host_details_from_list(self):
+        
+        if self._current_list_item_index < 0 or self._current_list_item_index >= len(self._visible_blocks):
+            self._show_host_details(None)
+            return
+        block = self._visible_blocks[self._current_list_item_index]
+        self._show_host_details(block)
+
+    def _show_host_details_from_tree(self, current: QTreeWidgetItem, previous: QTreeWidgetItem) -> None:
+        """Handle selection change in tree view."""
+        self._current_tree_item = current
+        self._update_host_details_from_tree()
+
+    def _update_host_details_from_tree(self):
+        if self._current_tree_item is None:
+            self._show_host_details(None)
+            return
+        
+        # Get the block stored in the item's data
+        block = self._current_tree_item.data(0, Qt.ItemDataRole.UserRole)
+        if isinstance(block, HostBlock):
+            self._show_host_details(block)
+        else:
+            # This is a tag node, not a host
+            self._show_host_details(None)
+
     def _current_block(self) -> Optional[HostBlock]:
-        index = self._host_list.currentRow()
-        if index < 0 or index >= len(self._visible_blocks):
+        """Get the currently selected host block from either view."""
+        # Check which tab is active
+        if self._view_tabs.currentIndex() == 0:
+            # Flat list view
+            index = self._host_list.currentRow()
+            if index < 0 or index >= len(self._visible_blocks):
+                return None
+            return self._visible_blocks[index]
+        else:
+            # Tree view
+            current = self._host_tree.currentItem()
+            if current is None:
+                return None
+            block = current.data(0, Qt.ItemDataRole.UserRole)
+            if isinstance(block, HostBlock):
+                return block
             return None
-        return self._visible_blocks[index]
 
     def _select_host_by_name(self, pattern: str) -> None:
+        """Select a host by pattern in the currently active view."""
+        # Try to find the host in visible blocks
         for idx, block in enumerate(self._visible_blocks):
             if pattern in block.patterns:
-                self._host_list.setCurrentRow(idx)
+                # Select in the appropriate view based on active tab
+                if self._view_tabs.currentIndex() == 0:
+                    # Flat list view
+                    self._host_list.setCurrentRow(idx)
+                else:
+                    # Tree view - find and select the item
+                    self._select_host_in_tree(block)
                 return
+        
         # If filtered out, clear filter to show it
         if hasattr(self, "_host_filter") and self._host_filter.text():
             self._host_filter.blockSignals(True)
             self._host_filter.clear()
             self._host_filter.blockSignals(False)
             self._populate_host_list()
+            self._populate_host_tree()
             for idx, block in enumerate(self._visible_blocks):
                 if pattern in block.patterns:
-                    self._host_list.setCurrentRow(idx)
+                    if self._view_tabs.currentIndex() == 0:
+                        self._host_list.setCurrentRow(idx)
+                    else:
+                        self._select_host_in_tree(block)
+                    return
+
+    def _select_host_in_tree(self, target_block: HostBlock) -> None:
+        """Find and select a host block in the tree view."""
+        root = self._host_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            tag_node = root.child(i)
+            for j in range(tag_node.childCount()):
+                host_item = tag_node.child(j)
+                block = host_item.data(0, Qt.ItemDataRole.UserRole)
+                if block == target_block:
+                    self._host_tree.setCurrentItem(host_item)
                     return
 
     def _prompt_text(self, title: str, label: str, *, text: str = "", allow_empty: bool = False) -> Optional[str]:
@@ -408,7 +732,7 @@ class MainWindow(QMainWindow):
         options = list(block.options.items())
         target = Path(config_module.DEFAULT_HOME_SSH_CONFIG).expanduser()
         try:
-            config_module.append_host_block(target, [new_pattern], options)
+            config_module.append_host_block(target, [new_pattern], options, tags=block.tags, color=block.color)
         except Exception as exc:
             QMessageBox.critical(self, "Error", f"Failed to duplicate host:\n{exc}")
             return
@@ -461,7 +785,7 @@ class MainWindow(QMainWindow):
             options.append((key, value))
 
         try:
-            config_module.replace_host_block(Path(block.source_file), block, list(block.patterns), options)
+            config_module.replace_host_block_with_metadata(Path(block.source_file), block, list(block.patterns), options)
         except Exception as exc:
             QMessageBox.critical(self, "Error", f"Failed to update host:\n{exc}")
             return
@@ -497,7 +821,7 @@ class MainWindow(QMainWindow):
             options.append((new_key, new_value))
 
         try:
-            config_module.replace_host_block(Path(block.source_file), block, list(block.patterns), options)
+            config_module.replace_host_block_with_metadata(Path(block.source_file), block, list(block.patterns), options)
         except Exception as exc:
             QMessageBox.critical(self, "Error", f"Failed to update option:\n{exc}")
             return
@@ -542,7 +866,7 @@ class MainWindow(QMainWindow):
 
         options = [(k, v) for k, v in block.options.items() if k != option_key]
         try:
-            config_module.replace_host_block(Path(block.source_file), block, list(block.patterns), options)
+            config_module.replace_host_block_with_metadata(Path(block.source_file), block, list(block.patterns), options)
         except Exception as exc:
             QMessageBox.critical(self, "Error", f"Failed to remove option:\n{exc}")
             return
@@ -584,6 +908,80 @@ class MainWindow(QMainWindow):
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self._register_viewer(dialog)
         dialog.show()
+
+    def _show_host_context_menu(self, pos) -> None:
+        """Show context menu for host list."""
+        item = self._host_list.itemAt(pos)
+        if item is None:
+            return
+        
+        menu = QMenu(self)
+        menu.addAction("Edit Tags...", self._edit_tags)
+        menu.addAction("Delete", self._delete_host)
+        menu.exec(self._host_list.viewport().mapToGlobal(pos))
+
+    def _show_host_context_menu_tree(self, pos) -> None:
+        """Show context menu for host tree."""
+        item = self._host_tree.itemAt(pos)
+        if item is None:
+            return
+        
+        # Only show menu if it's a host item (not a tag group)
+        block = item.data(0, Qt.ItemDataRole.UserRole)
+        if not isinstance(block, HostBlock):
+            return
+        
+        menu = QMenu(self)
+        menu.addAction("Edit Tags...", self._edit_tags)
+        menu.addAction("Delete", self._delete_host)
+        menu.exec(self._host_tree.viewport().mapToGlobal(pos))
+
+    def _edit_tags(self) -> None:
+        """Open the tag edit dialog for the selected host."""
+        block = self._current_block()
+        if block is None:
+            QMessageBox.warning(self, "No Host Selected", "Select a host to edit tags.")
+            return
+        
+        # Collect all existing tags from all blocks for autocomplete
+        all_tags: List[str] = []
+        for b in self._blocks:
+            for tag in b.tags:
+                if tag not in all_tags:
+                    all_tags.append(tag)
+        all_tags.sort()
+        
+        # Open the tag edit dialog
+        dialog = TagDialog(
+            self,
+            title=f"Edit Tags: {', '.join(block.patterns)}",
+            current_tags=block.tags,
+            current_color=block.color,
+            all_tags=all_tags,
+        )
+        
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        
+        # Update the block with new tags and color
+        block.tags = dialog.tags
+        block.color = dialog.color
+        
+        # Save changes using replace_host_block_with_metadata()
+        try:
+            config_module.replace_host_block_with_metadata(
+                Path(block.source_file),
+                block,
+                list(block.patterns),
+                list(block.options.items())
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", f"Failed to save tags:\n{exc}")
+            return
+        
+        # Reload hosts to reflect changes
+        self.load_hosts()
+        self._select_host_by_name(block.patterns[0])
 
     def _register_viewer(self, dialog: QDialog) -> None:
         self._viewer_windows.append(dialog)

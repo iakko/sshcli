@@ -17,9 +17,15 @@ def register(app: typer.Typer) -> None:
             False, "--patterns", help="Show full Host patterns (including wildcards)."
         ),
         files: bool = typer.Option(False, "--files", help="Show origin file and line for each block."),
+        tag: List[str] = typer.Option(None, "--tag", help="Filter by tag (can be repeated)."),
     ):
         """List Host blocks discovered in your SSH configs."""
         blocks = config_module.load_host_blocks()
+        
+        # Filter by tags if specified
+        if tag:
+            blocks = [b for b in blocks if any(b.has_tag(t) for t in tag)]
+        
         if not blocks:
             console.print("[yellow]No SSH host blocks found.[/yellow]")
             raise typer.Exit(code=0)
@@ -29,6 +35,7 @@ def register(app: typer.Typer) -> None:
         table.add_column("HostName")
         table.add_column("User")
         table.add_column("Port", justify="right")
+        table.add_column("Tags")
         if show_patterns:
             table.add_column("Patterns")
         if files:
@@ -40,8 +47,9 @@ def register(app: typer.Typer) -> None:
             port = block.options.get("Port", "")
             names = block.names_for_listing or [block.patterns[0]]
             name_str = ", ".join(names)
+            tags_str = ", ".join(block.tags) if block.tags else ""
 
-            row: List[str] = [name_str, hostnames, user, port]
+            row: List[str] = [name_str, hostnames, user, port, tags_str]
             if show_patterns:
                 row.append(" ".join(block.patterns))
             if files:

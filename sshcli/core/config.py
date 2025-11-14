@@ -54,6 +54,26 @@ def _read_lines(path: Path) -> Iterable[Tuple[int, str]]:
         return
 
 
+def _read_lines_with_comments(path: Path) -> Iterable[Tuple[int, str, bool]]:
+    """
+    Yield (line_number, text, is_comment) tuples.
+    
+    Args:
+        path: Path to the config file
+    
+    Returns:
+        Tuples of (lineno, line_text, is_comment_flag)
+    """
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            for number, line in enumerate(handle, start=1):
+                text = line.rstrip("\n")
+                is_comment = text.strip().startswith("#")
+                yield number, text, is_comment
+    except (FileNotFoundError, PermissionError):
+        return
+
+
 def _iter_config_parts(file_path: Path) -> Iterable[Tuple[int, List[str]]]:
     for lineno, raw_line in _read_lines(file_path):
         line = raw_line.split("#", 1)[0].strip()
@@ -74,6 +94,37 @@ def _start_new_block(
     return HostBlock(patterns=patterns, source_file=file_path, lineno=lineno)
 
 
+def _start_new_block_with_metadata(
+    current: Optional[HostBlock],
+    patterns: List[str],
+    file_path: Path,
+    lineno: int,
+    blocks: List[HostBlock],
+    pending_comments: List[Tuple[int, str]],
+) -> HostBlock:
+    """Create a new HostBlock and parse metadata from pending comments."""
+    if current is not None:
+        blocks.append(current)
+    
+    # Determine metadata start line
+    metadata_lineno = pending_comments[0][0] if pending_comments else lineno
+    
+    block = HostBlock(patterns=patterns, source_file=file_path, lineno=lineno)
+    block.metadata_lineno = metadata_lineno
+    
+    # Parse metadata from comments
+    from .metadata import parse_metadata_comment, parse_tags
+    
+    for _, comment_line in pending_comments:
+        key, value = parse_metadata_comment(comment_line)
+        if key == "tags":
+            block.tags = parse_tags(value)
+        elif key == "color":
+            block.color = value
+    
+    return block
+
+
 def _append_option(current: Optional[HostBlock], parts: List[str]) -> Optional[HostBlock]:
     if current is None or len(parts) < 2:
         return current
@@ -89,7 +140,7 @@ def _finalize_block(current: Optional[HostBlock], blocks: List[HostBlock]) -> No
 
 
 def parse_config_files(entrypoints: List[Path]) -> List[HostBlock]:
-    """Parse host blocks recursively while following Include directives."""
+    """Parse host blocks with metadata support."""
     seen: set[Path] = set()
     blocks: List[HostBlock] = []
 
@@ -98,20 +149,38 @@ def parse_config_files(entrypoints: List[Path]) -> List[HostBlock]:
             return
 
         current: Optional[HostBlock] = None
-        for lineno, parts in _iter_config_parts(file_path):
+        pending_comments: List[Tuple[int, str]] = []
+        
+        for lineno, line, is_comment in _read_lines_with_comments(file_path):
+            # Track comments that might be metadata
+            if is_comment:
+                pending_comments.append((lineno, line))
+                continue
+            
+            # Parse non-comment line
+            stripped = line.split("#", 1)[0].strip()
+            if not stripped:
+                pending_comments.clear()
+                continue
+            
+            parts = stripped.split()
             key = parts[0].lower()
 
             if _is_include(key, parts):
                 _parse_include(parts, file_path, parse_one)
+                pending_comments.clear()
                 continue
 
             if key == "match":
-                # Skipped in this minimal viewer.
+                pending_comments.clear()
                 continue
 
             if _is_host_definition(key, parts):
                 patterns = parts[1:]
-                current = _start_new_block(current, patterns, file_path, lineno, blocks)
+                current = _start_new_block_with_metadata(
+                    current, patterns, file_path, lineno, blocks, pending_comments
+                )
+                pending_comments.clear()
                 continue
 
             current = _append_option(current, parts)
@@ -172,8 +241,62 @@ def format_host_block(patterns: List[str], options: List[Tuple[str, str]]) -> st
     return "\n".join(lines) + "\n"
 
 
-def append_host_block(target: Path, patterns: List[str], options: List[Tuple[str, str]]) -> Optional[Path]:
-    """Append a host block to the target SSH config, creating the file if needed."""
+def format_host_block_with_metadata(
+    patterns: List[str],
+    options: List[Tuple[str, str]],
+    tags: Optional[List[str]] = None,
+    color: Optional[str] = None,
+) -> str:
+    """
+    Format a host block with metadata comments for writing to disk.
+    
+    Args:
+        patterns: List of host patterns
+        options: List of (key, value) tuples for SSH options
+        tags: Optional list of tags to add as metadata
+        color: Optional color value to add as metadata
+    
+    Returns:
+        Formatted string with metadata comments, Host declaration, and options
+    """
+    from .metadata import format_metadata_comments
+    
+    lines = []
+    
+    # Add metadata comments
+    metadata_lines = format_metadata_comments(tags or [], color)
+    lines.extend(metadata_lines)
+    
+    # Add Host declaration
+    lines.append(f"Host {' '.join(patterns)}")
+    
+    # Add options
+    for key, value in options:
+        lines.append(f"    {key} {value}")
+    
+    return "\n".join(lines) + "\n"
+
+
+def append_host_block(
+    target: Path,
+    patterns: List[str],
+    options: List[Tuple[str, str]],
+    tags: Optional[List[str]] = None,
+    color: Optional[str] = None,
+) -> Optional[Path]:
+    """
+    Append a host block to the target SSH config, creating the file if needed.
+    
+    Args:
+        target: Path to the SSH config file
+        patterns: List of host patterns
+        options: List of (key, value) tuples for SSH options
+        tags: Optional list of tags to add as metadata
+        color: Optional color value to add as metadata
+    
+    Returns:
+        Path to the backup file, or None if no backup was created
+    """
     target = target.expanduser()
     target.parent.mkdir(parents=True, exist_ok=True)
 
@@ -181,7 +304,8 @@ def append_host_block(target: Path, patterns: List[str], options: List[Tuple[str
     if target.exists():
         backup = _backup_file(target)
 
-    block_text = format_host_block(patterns, options)
+    # Use format_host_block_with_metadata() instead of format_host_block()
+    block_text = format_host_block_with_metadata(patterns, options, tags, color)
     separator = ""
     if target.exists():
         size = target.stat().st_size
@@ -234,6 +358,66 @@ def replace_host_block(
     return backup
 
 
+def replace_host_block_with_metadata(
+    target: Path,
+    block: HostBlock,
+    patterns: List[str],
+    options: List[Tuple[str, str]],
+) -> Optional[Path]:
+    """
+    Replace an existing host block with new content, preserving or updating metadata.
+    
+    Args:
+        target: Path to the SSH config file
+        block: The HostBlock to replace (contains metadata_lineno)
+        patterns: List of host patterns
+        options: List of (key, value) tuples for SSH options
+    
+    Returns:
+        Path to the backup file, or None if no backup was created
+    """
+    target = target.expanduser()
+    if not target.exists():
+        raise FileNotFoundError(f"Config file {target} does not exist.")
+
+    # Read existing config file lines
+    with target.open("r", encoding="utf-8") as handle:
+        lines = handle.read().splitlines()
+
+    # Create backup using existing _backup_file()
+    backup = _backup_file(target)
+
+    # Calculate start_idx from block.metadata_lineno
+    start_idx = max(block.metadata_lineno - 1, 0)
+    
+    # Find end_idx of block (next Host/Match or EOF)
+    end_idx = block.lineno  # Start from Host line
+    while end_idx < len(lines):
+        stripped = lines[end_idx].strip()
+        if stripped and not stripped.startswith("#"):
+            keyword = stripped.split(None, 1)[0].lower()
+            if keyword in {"host", "match"}:
+                break
+        end_idx += 1
+
+    # Replace lines with new formatted block including metadata
+    new_block_lines = format_host_block_with_metadata(
+        patterns, options, block.tags, block.color
+    ).rstrip("\n").split("\n")
+    
+    lines[start_idx:end_idx] = new_block_lines
+
+    # Write updated content back to file
+    new_content = "\n".join(lines)
+    if not new_content.endswith("\n"):
+        new_content += "\n"
+
+    with target.open("w", encoding="utf-8") as handle:
+        handle.write(new_content)
+    
+    return backup
+
+
 def remove_host_block(target: Path, block: HostBlock) -> Optional[Path]:
     """Remove a host block from the given file."""
     target = target.expanduser()
@@ -278,8 +462,10 @@ __all__ = [
     "append_host_block",
     "discover_config_files",
     "format_host_block",
+    "format_host_block_with_metadata",
     "load_host_blocks",
     "parse_config_files",
     "remove_host_block",
     "replace_host_block",
+    "replace_host_block_with_metadata",
 ]

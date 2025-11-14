@@ -67,12 +67,12 @@ def test_mark_seen_behavior(tmp_path, monkeypatch):
 
     visited = []
 
-    def fake_iter_config_parts(path):
+    def fake_read_lines_with_comments(path):
         visited.append(path)
         # No meaningful content; just drive _mark_seen + _parse_include path.
         return []
 
-    monkeypatch.setattr(config_module, "_iter_config_parts", fake_iter_config_parts)
+    monkeypatch.setattr(config_module, "_read_lines_with_comments", fake_read_lines_with_comments)
 
     temp = tmp_path / "config"
     temp.write_text("Host foo\n    HostName foo\n")

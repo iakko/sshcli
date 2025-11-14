@@ -17,6 +17,15 @@ def format_block_table(block: HostBlock) -> Table:
     table = Table(box=box.SIMPLE, show_lines=False)
     table.add_column("Key", style="bold")
     table.add_column("Value")
+    
+    # Add tags row if block has tags
+    if block.tags:
+        table.add_row("[bold]Tags[/bold]", ", ".join(block.tags))
+    
+    # Add color row if block has color
+    if block.color:
+        table.add_row("[bold]Color[/bold]", block.color)
+    
     for key in sorted(block.options.keys(), key=str.lower):
         table.add_row(f"[bold]{key}[/bold]", block.options[key])
     return table

@@ -16,9 +16,15 @@ def register(app: typer.Typer) -> None:
     @app.command("find")
     def find_hosts(
         query: str = typer.Argument(..., help="Substring or wildcard pattern to search in Host patterns or HostName."),
+        tag: List[str] = typer.Option(None, "--tag", help="Filter by tag before searching."),
     ):
         """Search Host blocks by pattern (wildcards) or HostName substring."""
         blocks = config_module.load_host_blocks()
+        
+        # Apply tag filter first
+        if tag:
+            blocks = [b for b in blocks if any(b.has_tag(t) for t in tag)]
+        
         hits: List[Tuple[str, HostBlock]] = []
 
         for block in blocks:
