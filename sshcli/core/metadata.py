@@ -1,23 +1,10 @@
-"""Metadata parsing and formatting for SSH host tags and colors."""
+"""Metadata parsing and formatting for SSH host tags."""
 
-from typing import List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional
 
 
 def parse_metadata_comment(line: str) -> Tuple[Optional[str], Optional[str]]:
-    """
-    Parse a metadata comment line.
-    
-    Args:
-        line: A line from the SSH config file
-    
-    Returns:
-        (key, value) tuple or (None, None) if not a metadata comment
-    
-    Examples:
-        "# @tags: prod, web" -> ("tags", "prod, web")
-        "# @color: red" -> ("color", "red")
-        "# regular comment" -> (None, None)
-    """
+    """Parse metadata comment lines that precede Host blocks."""
     stripped = line.strip()
     if not stripped.startswith("#"):
         return None, None
@@ -51,24 +38,38 @@ def parse_tags(value: str) -> List[str]:
     return [tag.strip() for tag in value.split(",") if tag.strip()]
 
 
-def format_metadata_comments(tags: List[str], color: Optional[str]) -> List[str]:
-    """
-    Format metadata as comment lines.
-    
-    Args:
-        tags: List of tag strings
-        color: Optional color value
-    
-    Returns:
-        List of comment lines to write before Host declaration
-    
-    Example:
-        (["prod", "web"], "red") -> ["# @tags: prod, web", "# @color: red"]
-    """
-    lines = []
-    if tags:
-        tags_str = ", ".join(tags)
-        lines.append(f"# @tags: {tags_str}")
-    if color:
-        lines.append(f"# @color: {color}")
+def format_metadata_comments(tags: List[str]) -> List[str]:
+    """Return comment lines that encode the tags attached to a host."""
+
+    if not tags:
+        return []
+    tags_str = ", ".join(tags)
+    return [f"# @tags: {tags_str}"]
+
+
+def parse_tag_definition(line: str) -> Tuple[Optional[str], Optional[str]]:
+    """Parse a tag definition comment of the form '# @tagdef name color'."""
+    stripped = line.strip()
+    if not stripped.startswith("#"):
+        return None, None
+    content = stripped[1:].strip()
+    if not content.lower().startswith("@tagdef"):
+        return None, None
+    parts = content.split(None, 2)
+    if len(parts) < 2:
+        return None, None
+    tag = parts[1].strip()
+    color = parts[2].strip() if len(parts) >= 3 else ""
+    return tag, color
+
+
+def format_tag_definitions(definitions: Dict[str, str]) -> List[str]:
+    """Format tag definitions as comment lines."""
+    lines: List[str] = []
+    for tag in sorted(definitions.keys(), key=str.lower):
+        color = definitions[tag]
+        if color:
+            lines.append(f"# @tagdef {tag} {color}")
+        else:
+            lines.append(f"# @tagdef {tag}")
     return lines

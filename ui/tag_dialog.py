@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
@@ -9,10 +9,11 @@ from PyQt6.QtWidgets import (
     QCompleter,
     QDialog,
     QDialogButtonBox,
-    QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -20,7 +21,7 @@ from PyQt6.QtWidgets import (
 
 
 class TagDialog(QDialog):
-    """Dialog for editing host tags and color."""
+    """Dialog for editing host tags and their colors."""
 
     def __init__(
         self,
@@ -28,198 +29,219 @@ class TagDialog(QDialog):
         *,
         title: str = "Edit Tags",
         current_tags: Optional[List[str]] = None,
-        current_color: Optional[str] = None,
         all_tags: Optional[List[str]] = None,
+        tag_definitions: Optional[Dict[str, str]] = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(title)
-        
-        # Store current state
+
         self._tags: List[str] = list(current_tags) if current_tags else []
-        self._color: Optional[str] = current_color
         self._all_tags: List[str] = all_tags or []
-        
+        self._tag_definitions: Dict[str, str] = dict(tag_definitions or {})
+
         self._setup_ui()
-        
-        # Set window flags to remove min/max buttons
+
         self.setWindowFlags(
-            Qt.WindowType.Dialog |
-            Qt.WindowType.WindowTitleHint |
-            Qt.WindowType.CustomizeWindowHint |
-            Qt.WindowType.WindowCloseButtonHint
+            Qt.WindowType.Dialog
+            | Qt.WindowType.WindowTitleHint
+            | Qt.WindowType.CustomizeWindowHint
+            | Qt.WindowType.WindowCloseButtonHint
         )
-        
         self.setSizeGripEnabled(False)
         self.adjustSize()
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(420)
 
     def _setup_ui(self) -> None:
-        """Set up the dialog UI."""
         layout = QVBoxLayout(self)
-        
-        # Current tags display section
-        layout.addWidget(QLabel("Current Tags:"))
+
+        layout.addWidget(QLabel("Assigned Tags:"))
         self._tags_display_widget = QWidget()
         self._tags_display_layout = QHBoxLayout(self._tags_display_widget)
         self._tags_display_layout.setContentsMargins(0, 0, 0, 0)
         self._tags_display_layout.setSpacing(4)
         layout.addWidget(self._tags_display_widget)
-        
-        # Tag input section
-        tag_input_layout = QHBoxLayout()
-        tag_input_layout.setSpacing(4)
-        
+
+        layout.addWidget(QLabel("Available Tags:"))
+        self._available_list = QListWidget()
+        self._available_list.itemDoubleClicked.connect(  # type: ignore[arg-type]
+            lambda item: self._add_tag_from_available(item.text())
+        )
+        layout.addWidget(self._available_list)
+
+        add_selected = QPushButton("Add Selected Tag")
+        add_selected.clicked.connect(self._add_selected_available_tag)  # type: ignore[arg-type]
+        layout.addWidget(add_selected)
+
+        layout.addWidget(QLabel("Create New Tag:"))
+        new_tag_row = QHBoxLayout()
+        new_tag_row.setSpacing(4)
         self._tag_input = QLineEdit()
-        self._tag_input.setPlaceholderText("Enter tag name...")
-        self._tag_input.returnPressed.connect(self._add_tag)
-        tag_input_layout.addWidget(self._tag_input, stretch=1)
-        
-        add_button = QPushButton("Add")
-        add_button.clicked.connect(self._add_tag)
-        tag_input_layout.addWidget(add_button)
-        
-        layout.addLayout(tag_input_layout)
-        
-        # Color picker section
-        color_layout = QFormLayout()
+        self._tag_input.setPlaceholderText("Tag name…")
+        self._tag_input.returnPressed.connect(self._create_and_assign_tag)  # type: ignore[arg-type]
+        new_tag_row.addWidget(self._tag_input, stretch=1)
+
         self._color_combo = QComboBox()
-        self._color_combo.setEditable(True)
         self._populate_color_options()
-        if self._color:
-            self._color_combo.setEditText(self._color)
-        color_layout.addRow("Color:", self._color_combo)
-        layout.addLayout(color_layout)
-        
-        # Dialog buttons
+        new_tag_row.addWidget(self._color_combo)
+
+        create_button = QPushButton("Create & Assign")
+        create_button.clicked.connect(self._create_and_assign_tag)  # type: ignore[arg-type]
+        new_tag_row.addWidget(create_button)
+        layout.addLayout(new_tag_row)
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
-        
-        # Initial display of tags
-        self._update_tags_display()
-        
-        # Set up autocomplete after UI is created
+
         self._setup_autocomplete()
+        self._refresh_assigned_tags()
+        self._refresh_available_tags()
 
     def _populate_color_options(self) -> None:
-        """Populate the color dropdown with predefined color options."""
+        self._color_combo.clear()
         colors = [
-            "",  # No color
-            "red",
-            "green",
-            "blue",
-            "yellow",
-            "orange",
-            "purple",
-            "cyan",
-            "magenta",
-            "gray",
+            ("Default", ""),
+            ("Red", "#ef4444"),
+            ("Orange", "#f97316"),
+            ("Amber", "#f59e0b"),
+            ("Yellow", "#eab308"),
+            ("Green", "#10b981"),
+            ("Teal", "#14b8a6"),
+            ("Blue", "#3b82f6"),
+            ("Indigo", "#6366f1"),
+            ("Purple", "#a855f7"),
+            ("Pink", "#ec4899"),
+            ("Gray", "#6b7280"),
         ]
-        self._color_combo.addItems(colors)
+        for label, value in colors:
+            self._color_combo.addItem(label, userData=value)
+            if value:
+                idx = self._color_combo.count() - 1
+                self._color_combo.setItemData(idx, QColor(value), Qt.ItemDataRole.BackgroundRole)
+                self._color_combo.setItemData(idx, QColor("#ffffff"), Qt.ItemDataRole.ForegroundRole)
 
     def _setup_autocomplete(self) -> None:
-        """Set up autocomplete for the tag input field."""
-        if self._all_tags:
-            completer = QCompleter(self._all_tags)
+        suggestions = sorted(set(self._tag_definitions.keys()))
+        if suggestions:
+            completer = QCompleter(suggestions)
             completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
             self._tag_input.setCompleter(completer)
 
-    def _update_tags_display(self) -> None:
-        """Update the display of current tags."""
-        # Clear existing widgets
+    def _refresh_assigned_tags(self) -> None:
         while self._tags_display_layout.count():
             item = self._tags_display_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        
-        # Add tag badges
+
         if self._tags:
             for tag in self._tags:
-                tag_widget = self._create_tag_badge(tag)
-                self._tags_display_layout.addWidget(tag_widget)
+                badge = self._create_tag_badge(tag)
+                self._tags_display_layout.addWidget(badge)
         else:
-            no_tags_label = QLabel("(no tags)")
-            no_tags_label.setStyleSheet("color: #888888; font-style: italic;")
-            self._tags_display_layout.addWidget(no_tags_label)
-        
-        # Add stretch to push tags to the left
+            placeholder = QLabel("(no tags)")
+            placeholder.setStyleSheet("color: #888888; font-style: italic;")
+            self._tags_display_layout.addWidget(placeholder)
+
         self._tags_display_layout.addStretch()
 
+    def _refresh_available_tags(self) -> None:
+        self._available_list.clear()
+        assigned_lower = {tag.lower() for tag in self._tags}
+        available = sorted(
+            tag for tag in self._tag_definitions.keys() if tag.lower() not in assigned_lower
+        )
+        for tag in available:
+            item = QListWidgetItem(tag)
+            color = self._tag_definitions.get(tag, "")
+            if color:
+                qcolor = QColor(color)
+                item.setBackground(qcolor)
+                item.setForeground(QColor("#ffffff") if self._is_dark(qcolor) else QColor("#000000"))
+            self._available_list.addItem(item)
+
     def _create_tag_badge(self, tag: str) -> QWidget:
-        """Create a tag badge widget with a remove button."""
         widget = QWidget()
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
-        
-        # Tag label
-        tag_label = QLabel(tag)
-        tag_label.setStyleSheet("""
-            QLabel {
-                background-color: #e0e0e0;
-                color: #333333;
-                padding: 4px 6px;
-                border-radius: 3px;
-                font-size: 11px;
-            }
-        """)
-        layout.addWidget(tag_label)
-        
-        # Remove button
+
+        label = QLabel(tag)
+        color = self._tag_definitions.get(self._resolve_tag_key(tag), "")
+        if color:
+            label.setStyleSheet(
+                f"QLabel {{ background-color: {color}; color: #ffffff; padding: 3px 6px; border-radius: 4px; }}"
+            )
+        else:
+            label.setStyleSheet(
+                "QLabel { background-color: #e0e0e0; color: #333333; padding: 3px 6px; border-radius: 4px; }"
+            )
+        layout.addWidget(label)
+
         remove_button = QPushButton("×")
         remove_button.setFixedSize(20, 20)
-        remove_button.setStyleSheet("""
-            QPushButton {
-                background-color: #d0d0d0;
-                color: #333333;
-                border: none;
-                border-radius: 3px;
-                font-size: 14px;
-                font-weight: bold;
-                padding: 0px;
-            }
-            QPushButton:hover {
-                background-color: #c0c0c0;
-            }
-        """)
+        remove_button.setStyleSheet(
+            "QPushButton { border: none; background: transparent; font-size: 14px; }"
+        )
         remove_button.clicked.connect(lambda: self._remove_tag(tag))
         layout.addWidget(remove_button)
-        
         return widget
 
-    def _add_tag(self) -> None:
-        """Add a tag from the input field."""
+    def _add_tag_from_available(self, tag: str) -> None:
+        if not tag:
+            return
+        if any(t.lower() == tag.lower() for t in self._tags):
+            return
+        self._tags.append(tag)
+        self._refresh_assigned_tags()
+        self._refresh_available_tags()
+
+    def _add_selected_available_tag(self) -> None:
+        item = self._available_list.currentItem()
+        if item is None:
+            return
+        self._add_tag_from_available(item.text())
+
+    def _create_and_assign_tag(self) -> None:
         tag = self._tag_input.text().strip()
         if not tag:
             return
-        
-        # Check if tag already exists (case-insensitive)
         if any(t.lower() == tag.lower() for t in self._tags):
             self._tag_input.clear()
-            self._tag_input.setFocus()
             return
-        
-        # Add the tag
-        self._tags.append(tag)
+        existing_key = self._resolve_tag_key(tag)
+        canonical = existing_key if existing_key is not None else tag
+        if existing_key is None:
+            color = self._color_combo.currentData(Qt.ItemDataRole.UserRole) or ""
+            self._tag_definitions[canonical] = color
+        self._tags.append(canonical)
         self._tag_input.clear()
-        self._tag_input.setFocus()
-        self._update_tags_display()
+        self._refresh_assigned_tags()
+        self._refresh_available_tags()
 
     def _remove_tag(self, tag: str) -> None:
-        """Remove a tag from the list."""
         self._tags = [t for t in self._tags if t != tag]
-        self._update_tags_display()
+        self._refresh_assigned_tags()
+        self._refresh_available_tags()
+
+    def _resolve_tag_key(self, tag: str) -> Optional[str]:
+        for existing in self._tag_definitions.keys():
+            if existing.lower() == tag.lower():
+                return existing
+        return None
+
+    @staticmethod
+    def _is_dark(color: QColor) -> bool:
+        # Simple luminance check for contrast
+        luminance = (0.299 * color.red() + 0.587 * color.green() + 0.114 * color.blue()) / 255
+        return luminance < 0.6
 
     @property
     def tags(self) -> List[str]:
-        """Get the current list of tags."""
         return self._tags
 
     @property
-    def color(self) -> Optional[str]:
-        """Get the current color value."""
-        color_text = self._color_combo.currentText().strip()
-        return color_text if color_text else None
+    def tag_definitions(self) -> Dict[str, str]:
+        return dict(self._tag_definitions)

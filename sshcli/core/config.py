@@ -5,9 +5,16 @@ import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from ..models import HostBlock
+from .metadata import (
+    format_metadata_comments,
+    format_tag_definitions,
+    parse_metadata_comment,
+    parse_tag_definition,
+    parse_tags,
+)
 
 DEFAULT_HOME_SSH = "~/.ssh"
 DEFAULT_HOME_SSH_CONFIG = f"{DEFAULT_HOME_SSH}/config"
@@ -21,6 +28,12 @@ DEFAULT_CONFIG_PATHS = [
 DEFAULT_INCLUDE_FALLBACKS = [
     "~/.ssh/config.d/*.conf",
 ]
+
+_tag_definitions_by_file: Dict[Path, Dict[str, str]] = {}
+
+
+def _normalize_path(path: Path) -> Path:
+    return path.expanduser().resolve()
 
 
 def _backup_file(path: Path) -> Path:
@@ -113,15 +126,11 @@ def _start_new_block_with_metadata(
     block.metadata_lineno = metadata_lineno
     
     # Parse metadata from comments
-    from .metadata import parse_metadata_comment, parse_tags
-    
     for _, comment_line in pending_comments:
         key, value = parse_metadata_comment(comment_line)
         if key == "tags":
             block.tags = parse_tags(value)
-        elif key == "color":
-            block.color = value
-    
+
     return block
 
 
@@ -150,10 +159,17 @@ def parse_config_files(entrypoints: List[Path]) -> List[HostBlock]:
 
         current: Optional[HostBlock] = None
         pending_comments: List[Tuple[int, str]] = []
-        
+
+        file_key = _normalize_path(file_path)
+        _tag_definitions_by_file[file_key] = dict(_tag_definitions_by_file.get(file_key, {}))
+
         for lineno, line, is_comment in _read_lines_with_comments(file_path):
             # Track comments that might be metadata
             if is_comment:
+                tag_name, tag_color = parse_tag_definition(line)
+                if tag_name:
+                    _tag_definitions_by_file[file_key][tag_name] = tag_color or _tag_definitions_by_file[file_key].get(tag_name, "")
+                    continue
                 pending_comments.append((lineno, line))
                 continue
             
@@ -245,7 +261,6 @@ def format_host_block_with_metadata(
     patterns: List[str],
     options: List[Tuple[str, str]],
     tags: Optional[List[str]] = None,
-    color: Optional[str] = None,
 ) -> str:
     """
     Format a host block with metadata comments for writing to disk.
@@ -254,17 +269,14 @@ def format_host_block_with_metadata(
         patterns: List of host patterns
         options: List of (key, value) tuples for SSH options
         tags: Optional list of tags to add as metadata
-        color: Optional color value to add as metadata
     
     Returns:
         Formatted string with metadata comments, Host declaration, and options
     """
-    from .metadata import format_metadata_comments
-    
     lines = []
     
     # Add metadata comments
-    metadata_lines = format_metadata_comments(tags or [], color)
+    metadata_lines = format_metadata_comments(tags or [])
     lines.extend(metadata_lines)
     
     # Add Host declaration
@@ -282,7 +294,6 @@ def append_host_block(
     patterns: List[str],
     options: List[Tuple[str, str]],
     tags: Optional[List[str]] = None,
-    color: Optional[str] = None,
 ) -> Optional[Path]:
     """
     Append a host block to the target SSH config, creating the file if needed.
@@ -292,7 +303,6 @@ def append_host_block(
         patterns: List of host patterns
         options: List of (key, value) tuples for SSH options
         tags: Optional list of tags to add as metadata
-        color: Optional color value to add as metadata
     
     Returns:
         Path to the backup file, or None if no backup was created
@@ -305,7 +315,7 @@ def append_host_block(
         backup = _backup_file(target)
 
     # Use format_host_block_with_metadata() instead of format_host_block()
-    block_text = format_host_block_with_metadata(patterns, options, tags, color)
+    block_text = format_host_block_with_metadata(patterns, options, tags)
     separator = ""
     if target.exists():
         size = target.stat().st_size
@@ -355,6 +365,10 @@ def replace_host_block(
 
     with target.open("w", encoding="utf-8") as handle:
         handle.write(new_content)
+
+    defs = _tag_definitions_by_file.get(_normalize_path(target))
+    if defs is not None:
+        _write_tag_definitions(target, defs)
     return backup
 
 
@@ -402,7 +416,7 @@ def replace_host_block_with_metadata(
 
     # Replace lines with new formatted block including metadata
     new_block_lines = format_host_block_with_metadata(
-        patterns, options, block.tags, block.color
+        patterns, options, block.tags
     ).rstrip("\n").split("\n")
     
     lines[start_idx:end_idx] = new_block_lines
@@ -414,7 +428,11 @@ def replace_host_block_with_metadata(
 
     with target.open("w", encoding="utf-8") as handle:
         handle.write(new_content)
-    
+
+    defs = _tag_definitions_by_file.get(_normalize_path(target))
+    if defs is not None:
+        _write_tag_definitions(target, defs)
+
     return backup
 
 
@@ -451,7 +469,55 @@ def remove_host_block(target: Path, block: HostBlock) -> Optional[Path]:
 
     with target.open("w", encoding="utf-8") as handle:
         handle.write(new_content)
+    defs = _tag_definitions_by_file.get(_normalize_path(target))
+    if defs is not None:
+        _write_tag_definitions(target, defs)
     return backup
+
+
+def get_tag_definitions(path: Path) -> Dict[str, str]:
+    return dict(_tag_definitions_by_file.get(_normalize_path(path), {}))
+
+
+def update_tag_definitions(path: Path, definitions: Dict[str, str]) -> None:
+    normalized = _normalize_path(path)
+    _tag_definitions_by_file[normalized] = dict(definitions)
+    _write_tag_definitions(path, _tag_definitions_by_file[normalized])
+
+
+def _write_tag_definitions(path: Path, definitions: Optional[Dict[str, str]]) -> None:
+    path = path.expanduser()
+    if definitions is None:
+        definitions = {}
+
+    formatted = format_tag_definitions(definitions)
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        lines = []
+
+    new_lines: List[str] = []
+    inserted = False
+
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("# @tagdef"):
+            continue
+        if not inserted and formatted:
+            if stripped and not stripped.startswith("# @tagdef"):
+                new_lines.extend(formatted)
+                new_lines.append("")
+                inserted = True
+        new_lines.append(line)
+
+    if formatted and not inserted:
+        new_lines = formatted + ([""] if new_lines else []) + new_lines
+
+    content = "\n".join(new_lines)
+    if content and not content.endswith("\n"):
+        content += "\n"
+
+    path.write_text(content, encoding="utf-8")
 
 
 __all__ = [
@@ -468,4 +534,6 @@ __all__ = [
     "remove_host_block",
     "replace_host_block",
     "replace_host_block_with_metadata",
+    "get_tag_definitions",
+    "update_tag_definitions",
 ]

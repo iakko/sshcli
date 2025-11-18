@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import List
 
 import typer
@@ -9,7 +10,7 @@ from .common import console
 
 
 def register(app: typer.Typer) -> None:
-    tag_app = typer.Typer(help="Manage host tags and colors")
+    tag_app = typer.Typer(help="Manage tags and their global definitions")
 
     @tag_app.command("add")
     def add_tags(
@@ -31,8 +32,24 @@ def register(app: typer.Typer) -> None:
             raise typer.Exit(1)
 
         block = matching[0]
+        definitions = config_module.get_tag_definitions(Path(block.source_file))
+        lookup = {name.lower(): name for name in definitions.keys()}
+
+        missing = [tag for tag in tags if tag.lower() not in lookup]
+        if missing:
+            console.print(
+                "[red]The following tags are not defined in this config: "
+                + ", ".join(repr(t) for t in missing)
+                + "[/red]"
+            )
+            console.print(
+                "[yellow]Define tags (and their colors) with 'sshcli tag color --target <config> TAG COLOR' before assigning them.[/yellow]"
+            )
+            raise typer.Exit(1)
+
         for tag in tags:
-            block.add_tag(tag)
+            canonical = lookup[tag.lower()]
+            block.add_tag(canonical)
 
         config_module.replace_host_block_with_metadata(
             block.source_file,
@@ -112,34 +129,25 @@ def register(app: typer.Typer) -> None:
 
     @tag_app.command("color")
     def set_color(
-        host_pattern: str = typer.Argument(..., help="Host pattern to set color for"),
+        tag: str = typer.Argument(..., help="Tag to define or update"),
         color: str = typer.Argument(..., help="Color name or hex code"),
+        target: Path = typer.Option(
+            Path(config_module.DEFAULT_HOME_SSH_CONFIG),
+            "--target",
+            "-t",
+            help="SSH config whose tag definitions should be updated.",
+        ),
     ) -> None:
-        """Set the color for a host."""
-        blocks = config_module.load_host_blocks()
-        matching = [b for b in blocks if host_pattern in b.patterns]
-
-        if not matching:
-            console.print(f"[red]No host found matching '{host_pattern}'[/red]")
-            raise typer.Exit(1)
-
-        if len(matching) > 1:
-            console.print(f"[yellow]Multiple hosts match '{host_pattern}':[/yellow]")
-            for block in matching:
-                console.print(f"  - {', '.join(block.patterns)}")
-            raise typer.Exit(1)
-
-        block = matching[0]
-        block.color = color
-
-        config_module.replace_host_block_with_metadata(
-            block.source_file,
-            block,
-            block.patterns,
-            list(block.options.items()),
+        """Create or update a tag definition (tag + color) for a config file."""
+        resolved_target = target.expanduser()
+        # Populate in-memory definitions for the selected file.
+        config_module.parse_config_files([resolved_target])
+        definitions = config_module.get_tag_definitions(resolved_target)
+        definitions[tag] = color
+        config_module.update_tag_definitions(resolved_target, definitions)
+        console.print(
+            f"[green]Set color for tag '{tag}' to '{color}' in {resolved_target}[/green]"
         )
-
-        console.print(f"[green]Set color '{color}' for {host_pattern}[/green]")
 
     app.add_typer(tag_app, name="tag")
 

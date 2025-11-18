@@ -178,6 +178,84 @@ def test_add_command_appends_host(tmp_path, cli_runner: CliRunner):
     assert backups, "Expected a backup to be created"
 
 
+def test_tag_color_creates_definition(tmp_path, cli_runner: CliRunner):
+    ssh_dir = tmp_path / "ssh"
+    ssh_dir.mkdir()
+    target = ssh_dir / "config"
+    _write_config(
+        target,
+        """
+        Host foo
+            HostName foo.example.com
+        """,
+    )
+
+    result = cli_runner.invoke(
+        cli_app,
+        [
+            "tag",
+            "color",
+            "prod",
+            "red",
+            "--target",
+            str(target),
+        ],
+    )
+
+    assert result.exit_code == 0
+    content = target.read_text()
+    assert "# @tagdef prod red" in content.splitlines()[0]
+
+
+def test_tag_add_requires_defined_tag(tmp_path, cli_runner: CliRunner, monkeypatch):
+    ssh_dir = tmp_path / "ssh"
+    ssh_dir.mkdir()
+    config_path = ssh_dir / "config"
+    _write_config(
+        config_path,
+        """
+        Host foo
+            HostName foo.example.com
+        """,
+    )
+
+    monkeypatch.setattr(
+        "sshcli.config.discover_config_files",
+        lambda: [config_path],
+    )
+
+    result = cli_runner.invoke(cli_app, ["tag", "add", "foo", "prod"])
+
+    assert result.exit_code == 1
+    assert "not defined" in result.stdout
+
+
+def test_tag_add_assigns_defined_tag(tmp_path, cli_runner: CliRunner, monkeypatch):
+    ssh_dir = tmp_path / "ssh"
+    ssh_dir.mkdir()
+    config_path = ssh_dir / "config"
+    _write_config(
+        config_path,
+        """
+        # @tagdef Prod red
+
+        Host foo
+            HostName foo.example.com
+        """,
+    )
+
+    monkeypatch.setattr(
+        "sshcli.config.discover_config_files",
+        lambda: [config_path],
+    )
+
+    result = cli_runner.invoke(cli_app, ["tag", "add", "foo", "prod"])
+
+    assert result.exit_code == 0
+    content = config_path.read_text().splitlines()
+    assert any(line.strip() == "# @tags: Prod" for line in content)
+
+
 def test_edit_command_updates_existing_host(tmp_path, cli_runner: CliRunner):
     ssh_dir = tmp_path / "ssh"
     ssh_dir.mkdir()

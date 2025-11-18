@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Callable, List, Optional
+import hashlib
 import shlex
 
 from PyQt6.QtCore import Qt
@@ -54,8 +55,10 @@ class MainWindow(QMainWindow):
         self._blocks: List[HostBlock] = []
         self._visible_blocks: List[HostBlock] = []
         self._viewer_windows: List[QDialog] = []
+        self._tag_color_cache: dict[str, QColor] = {}
         self._current_list_item_index: int = -1
         self._current_tree_item: QTreeWidgetItem | None = None
+        self._global_tag_definitions: dict[str, str] = {}
 
         self._setup_ui()
         self.load_hosts()
@@ -321,6 +324,7 @@ class MainWindow(QMainWindow):
             return
 
         self._blocks = blocks
+        self._collect_tag_definitions()
         self._populate_tag_filter()
         self._populate_host_list()
         self._populate_host_tree()
@@ -335,6 +339,15 @@ class MainWindow(QMainWindow):
         if not blocks or self._host_list.currentRow() < 0:
             self._config_info_label.setText(f"Loaded {count} host{'s' if count != 1 else ''}")
 
+    def _collect_tag_definitions(self) -> None:
+        self._global_tag_definitions = {}
+        self._tag_color_cache.clear()
+        for block in self._blocks:
+            defs = config_module.get_tag_definitions(Path(block.source_file))
+            for tag, color in defs.items():
+                if color:
+                    self._global_tag_definitions[tag.lower()] = color
+
     def _create_host_list_item_widget(self, block: HostBlock) -> QWidget:
         """Create a custom widget for displaying a host with tags and color."""
         widget = QWidget()
@@ -342,42 +355,84 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(4, 2, 4, 2)
         layout.setSpacing(6)
         
-        # Add host name
         host_name = ", ".join(block.names_for_listing or block.patterns)
         name_label = QLabel(host_name)
         layout.addWidget(name_label)
-        
-        # Add tag badges
+
+        layout.addStretch()
+
         if block.tags:
             for tag in block.tags:
-                tag_label = self._create_tag_badge_widget(tag, block.color)
+                tag_label = self._create_tag_badge_widget(tag)
                 layout.addWidget(tag_label)
-        
+
+        return widget
+
+    def _create_tag_group_widget(self, tag: str, count: int) -> QWidget:
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setSpacing(6)
+
+        badge = self._create_tag_badge_widget(tag)
+        layout.addWidget(badge)
+
+        count_label = QLabel(f"({count})")
+        layout.addWidget(count_label)
+
         layout.addStretch()
         return widget
     
-    def _create_tag_badge_widget(self, tag: str, color: Optional[str]) -> QLabel:
+    def _create_tag_badge_widget(self, tag: str) -> QLabel:
         """Create a styled tag badge widget."""
         label = QLabel(tag)
-        
-        bckcolor: str = "#e0e0e0"
-        
-        if color:
-            qcolor: QColor = self._map_color_name_to_qcolor(color)
-            bckcolor = f"rgb({qcolor.red()}, {qcolor.green()}, {qcolor.blue()})"
-            
-        # Tag badge styling: light background, padding, rounded corners
-        label.setStyleSheet(f"""
+
+        qcolor = self._get_tag_color(tag)
+        bg_color = qcolor.lighter(130).name()
+        text_color = "#000000" if self._is_light_color(qcolor) else "#ffffff"
+
+        label.setStyleSheet(
+            f"""
             QLabel {{
-                background-color: {bckcolor};
-                color: #333333;
+                background-color: {bg_color};
+                color: {text_color};
                 padding: 2px 6px;
                 border-radius: 5px;
                 font-size: 10px;
             }}
-        """)
-        
+        """
+        )
+
         return label
+
+    def _get_tag_color(self, tag: str) -> QColor:
+        tag_lower = tag.lower()
+        if tag_lower in self._tag_color_cache:
+            return self._tag_color_cache[tag_lower]
+        if tag_lower in self._global_tag_definitions:
+            color_value = self._global_tag_definitions[tag_lower]
+            qcolor = self._map_color_name_to_qcolor(color_value)
+            self._tag_color_cache[tag_lower] = qcolor
+            return qcolor
+        palette = [
+            QColor(244, 67, 54),
+            QColor(33, 150, 243),
+            QColor(76, 175, 80),
+            QColor(255, 193, 7),
+            QColor(156, 39, 176),
+            QColor(0, 188, 212),
+            QColor(255, 87, 34),
+            QColor(121, 85, 72),
+            QColor(96, 125, 139),
+        ]
+        stable_hash = int.from_bytes(hashlib.md5(tag_lower.encode("utf-8")).digest()[:4], "big")
+        color = palette[stable_hash % len(palette)]
+        self._tag_color_cache[tag_lower] = color
+        return color
+
+    def _is_light_color(self, color: QColor) -> bool:
+        luminance = (0.299 * color.red() + 0.587 * color.green() + 0.114 * color.blue()) / 255
+        return luminance > 0.7
     
     def _map_color_name_to_qcolor(self, color_name: str) -> QColor:
         """Map color names to QColor values."""
@@ -524,46 +579,35 @@ class MainWindow(QMainWindow):
         # Add tagged groups
         for tag in sorted(tag_groups.keys()):
             tag_item = QTreeWidgetItem(self._host_tree)
-            tag_item.setText(0, f"[{tag}] ({len(tag_groups[tag])})")
+            tag_item.setData(0, Qt.ItemDataRole.UserRole, None)
             tag_item.setExpanded(True)
-            
+            widget = self._create_tag_group_widget(tag, len(tag_groups[tag]))
+            self._host_tree.setItemWidget(tag_item, 0, widget)
+            tag_item.setSizeHint(0, widget.sizeHint())
+
             for block in tag_groups[tag]:
                 host_item = QTreeWidgetItem(tag_item)
-                host_name = ", ".join(block.names_for_listing or block.patterns)
-                
-                # Add color indicator if present
-                if block.color:
-                    host_item.setText(0, f"● {host_name}")
-                    qcolor = self._map_color_name_to_qcolor(block.color)
-                    host_item.setForeground(0, qcolor)
-                else:
-                    host_item.setText(0, host_name)
-                
-                # Store the block in the item's data
                 host_item.setData(0, Qt.ItemDataRole.UserRole, block)
                 host_item.setToolTip(0, f"{block.source_file}:{block.lineno}")
-        
-        # Add untagged hosts
+                host_widget = self._create_host_list_item_widget(block)
+                self._host_tree.setItemWidget(host_item, 0, host_widget)
+                host_item.setSizeHint(0, host_widget.sizeHint())
+
         if untagged:
             untagged_item = QTreeWidgetItem(self._host_tree)
-            untagged_item.setText(0, f"[Untagged] ({len(untagged)})")
+            untagged_item.setData(0, Qt.ItemDataRole.UserRole, None)
             untagged_item.setExpanded(True)
+            widget = self._create_tag_group_widget("Untagged", len(untagged))
+            self._host_tree.setItemWidget(untagged_item, 0, widget)
+            untagged_item.setSizeHint(0, widget.sizeHint())
             
             for block in untagged:
                 host_item = QTreeWidgetItem(untagged_item)
-                host_name = ", ".join(block.names_for_listing or block.patterns)
-                
-                # Add color indicator if present
-                if block.color:
-                    host_item.setText(0, f"● {host_name}")
-                    qcolor = self._map_color_name_to_qcolor(block.color)
-                    host_item.setForeground(0, qcolor)
-                else:
-                    host_item.setText(0, host_name)
-                
-                # Store the block in the item's data
                 host_item.setData(0, Qt.ItemDataRole.UserRole, block)
                 host_item.setToolTip(0, f"{block.source_file}:{block.lineno}")
+                host_widget = self._create_host_list_item_widget(block)
+                self._host_tree.setItemWidget(host_item, 0, host_widget)
+                host_item.setSizeHint(0, host_widget.sizeHint())
 
     def _apply_host_filter(self) -> None:
         selected = self._current_block()
@@ -733,7 +777,7 @@ class MainWindow(QMainWindow):
         options = list(block.options.items())
         target = Path(config_module.DEFAULT_HOME_SSH_CONFIG).expanduser()
         try:
-            config_module.append_host_block(target, [new_pattern], options, tags=block.tags, color=block.color)
+            config_module.append_host_block(target, [new_pattern], options, tags=block.tags)
         except Exception as exc:
             QMessageBox.critical(self, "Error", f"Failed to duplicate host:\n{exc}")
             return
@@ -951,31 +995,32 @@ class MainWindow(QMainWindow):
                 if tag not in all_tags:
                     all_tags.append(tag)
         all_tags.sort()
-        
-        # Open the tag edit dialog
+
+        tag_defs = config_module.get_tag_definitions(Path(block.source_file))
+
         dialog = TagDialog(
             self,
             title=f"Edit Tags: {', '.join(block.patterns)}",
             current_tags=block.tags,
-            current_color=block.color,
             all_tags=all_tags,
+            tag_definitions=tag_defs,
         )
         
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
         
-        # Update the block with new tags and color
         block.tags = dialog.tags
-        block.color = dialog.color
-        
-        # Save changes using replace_host_block_with_metadata()
+
         try:
+            # Update the host block first so we rely on the original line numbers.
             config_module.replace_host_block_with_metadata(
                 Path(block.source_file),
                 block,
                 list(block.patterns),
                 list(block.options.items())
             )
+            # Now persist any tag definition changes (which may insert lines at the top).
+            config_module.update_tag_definitions(Path(block.source_file), dialog.tag_definitions)
         except Exception as exc:
             QMessageBox.critical(self, "Error", f"Failed to save tags:\n{exc}")
             return

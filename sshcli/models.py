@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 
 class HostBlock:
@@ -15,7 +15,6 @@ class HostBlock:
         
         # Metadata fields
         self.tags: List[str] = []
-        self.color: Optional[str] = None
         self.metadata_lineno: int = lineno  # Line where metadata starts
 
     @property
