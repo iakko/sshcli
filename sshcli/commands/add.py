@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import typer
 
@@ -73,8 +73,8 @@ def register(app: typer.Typer) -> None:
             "-o",
             help="Additional option in KEY=VALUE form. Repeat for multiple options.",
         ),
-        target: Path = typer.Option(
-            Path(config_module.DEFAULT_HOME_SSH_CONFIG),
+        target: Optional[Path] = typer.Option(
+            None,
             "--target",
             "-t",
             help="SSH config file to modify.",
@@ -89,6 +89,9 @@ def register(app: typer.Typer) -> None:
         """Append a new Host block to an SSH config."""
         if not patterns:
             raise typer.BadParameter("At least one host pattern is required.")
+
+        if target is None:
+            target = config_module.default_config_path()
 
         resolved_target = target.expanduser()
         options = _build_options(hostname, user, port, option)

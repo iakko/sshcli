@@ -10,7 +10,7 @@ import typer
 from rich import box
 from rich.table import Table
 
-from ..config import DEFAULT_HOME_SSH_CONFIG
+from .. import config as config_module
 from ..core import backups as backups_core
 from .common import console
 from typer.main import get_command
@@ -18,12 +18,9 @@ from typer.main import get_command
 backup_app = typer.Typer(help="Inspect, restore, and prune SSH config backups.")
 
 
-def _default_target() -> Path:
-    return Path(DEFAULT_HOME_SSH_CONFIG)
-
-
-def _expand_target(target: Path) -> Path:
-    return target.expanduser()
+def _resolve_target(target: Optional[Path]) -> Path:
+    base = target or config_module.default_config_path()
+    return base.expanduser()
 
 
 def _format_timestamp(dt: Optional[datetime]) -> str:
@@ -66,8 +63,8 @@ def _format_size(size: int) -> str:
 
 @backup_app.command("list")
 def list_backups(
-    target: Path = typer.Option(
-        _default_target(),
+    target: Optional[Path] = typer.Option(
+        None,
         "--target",
         "-t",
         help="SSH config whose backups should be listed.",
@@ -75,7 +72,8 @@ def list_backups(
     ),
 ):
     """Display available backups for the selected SSH config."""
-    backups = backups_core.discover_backups(target)
+    resolved_target = _resolve_target(target)
+    backups = backups_core.discover_backups(resolved_target)
     if not backups:
         console.print("[yellow]No backups found for the selected config.[/yellow]")
         raise typer.Exit(code=0)
@@ -106,8 +104,8 @@ def restore_backup(
         help="Backup stamp or file name to restore from.",
         metavar="STAMP|NAME",
     ),
-    target: Path = typer.Option(
-        _default_target(),
+    target: Optional[Path] = typer.Option(
+        None,
         "--target",
         "-t",
         help="SSH config to restore.",
@@ -120,7 +118,8 @@ def restore_backup(
     ),
 ):
     """Restore the config from a specific backup."""
-    backups = backups_core.discover_backups(target)
+    resolved_target = _resolve_target(target)
+    backups = backups_core.discover_backups(resolved_target)
     if not backups:
         console.print("[red]No backups available to restore.[/red]")
         raise typer.Exit(code=1)
@@ -130,7 +129,6 @@ def restore_backup(
         console.print(f"[red]Backup '{identifier}' not found.[/red]")
         raise typer.Exit(code=1)
 
-    resolved_target = _expand_target(target)
     resolved_target.parent.mkdir(parents=True, exist_ok=True)
 
     if create_backup and resolved_target.exists():
@@ -146,8 +144,8 @@ def restore_backup(
 
 @backup_app.command("prune")
 def prune_backups(
-    target: Path = typer.Option(
-        _default_target(),
+    target: Optional[Path] = typer.Option(
+        None,
         "--target",
         "-t",
         help="SSH config whose backups should be pruned.",
@@ -172,8 +170,9 @@ def prune_backups(
     ),
 ):
     """Delete old backups by count or timestamp."""
+    resolved_target = _resolve_target(target)
     cutoff = _validate_prune_arguments(keep, before)
-    backups = backups_core.discover_backups(target)
+    backups = backups_core.discover_backups(resolved_target)
     if not backups:
         console.print("[yellow]No backups found.[/yellow]")
         raise typer.Exit(code=0)

@@ -6,7 +6,7 @@ import hashlib
 import shlex
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QFontDatabase, QColor
+from PyQt6.QtGui import QAction, QFont, QFontDatabase, QColor
 from PyQt6.QtWidgets import (
     QApplication,
     QLabel,
@@ -60,6 +60,7 @@ class MainWindow(QMainWindow):
         self._current_tree_item: QTreeWidgetItem | None = None
         self._global_tag_definitions: dict[str, str] = {}
 
+        self._setup_menus()
         self._setup_ui()
         self.load_hosts()
 
@@ -118,6 +119,56 @@ class MainWindow(QMainWindow):
         layout.addWidget(copy_button)
 
         return container
+
+    def _setup_menus(self) -> None:
+        menu_bar = self.menuBar()
+
+        file_menu = menu_bar.addMenu("File")
+        refresh_action = QAction("Refresh Hosts", self)
+        refresh_action.setShortcut("Ctrl+R")
+        refresh_action.triggered.connect(self.load_hosts)  # type: ignore[arg-type]
+        file_menu.addAction(refresh_action)
+
+        file_menu.addSeparator()
+        quit_action = QAction("Quit", self)
+        quit_action.setShortcut("Ctrl+Q")
+        quit_action.triggered.connect(self._quit_application)  # type: ignore[arg-type]
+        file_menu.addAction(quit_action)
+
+        help_menu = menu_bar.addMenu("Help")
+        about_action = QAction("About sshcli UI", self)
+        about_action.triggered.connect(self._show_help_dialog)  # type: ignore[arg-type]
+        help_menu.addAction(about_action)
+
+    def _show_help_dialog(self) -> None:
+        description = (
+            "SSH-UI is a graphical companion for sshcli, providing a tag-aware host browser "
+            "with quick access to connection details and editing actions.\n\n"
+            "sshcli is a CLI tool for exploring and managing SSH config files with tagging, backup, "
+            "and search utilities to keep complex setups tidy."
+        )
+        version = self._current_version()
+        QMessageBox.information(
+            self,
+            "About sshcli UI",
+            f"{description}\n\nVersion: {version}",
+        )
+
+    def _current_version(self) -> str:
+        try:
+            from importlib.metadata import PackageNotFoundError, version as pkg_version
+
+            try:
+                return pkg_version("ixlab-sshcli")
+            except PackageNotFoundError:
+                return pkg_version("sshcli")
+        except Exception:
+            return "unknown"
+
+    def _quit_application(self) -> None:
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
 
 
     def _update_details_label(self, block: Optional[HostBlock]) -> None:
@@ -750,7 +801,7 @@ class MainWindow(QMainWindow):
         if hostname:
             options.append(("HostName", hostname))
 
-        target = Path(config_module.DEFAULT_HOME_SSH_CONFIG).expanduser()
+        target = config_module.default_config_path()
         try:
             config_module.append_host_block(target, [pattern], options)
         except Exception as exc:
@@ -775,7 +826,7 @@ class MainWindow(QMainWindow):
             return
 
         options = list(block.options.items())
-        target = Path(config_module.DEFAULT_HOME_SSH_CONFIG).expanduser()
+        target = config_module.default_config_path()
         try:
             config_module.append_host_block(target, [new_pattern], options, tags=block.tags)
         except Exception as exc:

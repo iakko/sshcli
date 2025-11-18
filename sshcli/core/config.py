@@ -8,6 +8,13 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from ..models import HostBlock
+from . import settings as settings_module
+from .constants import (
+    DEFAULT_HOME_SSH,
+    DEFAULT_HOME_SSH_CONFIG,
+    DEFAULT_INCLUDE_FALLBACKS,
+    DEFAULT_KEYS_DIR,
+)
 from .metadata import (
     format_metadata_comments,
     format_tag_definitions,
@@ -15,19 +22,6 @@ from .metadata import (
     parse_tag_definition,
     parse_tags,
 )
-
-DEFAULT_HOME_SSH = "~/.ssh"
-DEFAULT_HOME_SSH_CONFIG = f"{DEFAULT_HOME_SSH}/config"
-DEFAULT_KEYS_DIR = f"{DEFAULT_HOME_SSH}/keys"
-
-DEFAULT_CONFIG_PATHS = [
-    "/etc/ssh/ssh_config",
-    DEFAULT_HOME_SSH_CONFIG,
-]
-
-DEFAULT_INCLUDE_FALLBACKS = [
-    "~/.ssh/config.d/*.conf",
-]
 
 _tag_definitions_by_file: Dict[Path, Dict[str, str]] = {}
 
@@ -232,11 +226,8 @@ def _is_host_definition(key: str, parts: List[str]) -> bool:
 
 def discover_config_files() -> List[Path]:
     """Return the list of entrypoint configuration files to parse."""
-    files: List[Path] = []
-    for path in DEFAULT_CONFIG_PATHS:
-        expanded = Path(path).expanduser()
-        if expanded.is_file():
-            files.append(expanded)
+    settings = settings_module.load_settings()
+    files = [path for path in settings_module.active_config_paths(settings) if path.is_file()]
     if not files:
         for pattern in DEFAULT_INCLUDE_FALLBACKS:
             files.extend(_expand_path(pattern))
@@ -485,6 +476,11 @@ def update_tag_definitions(path: Path, definitions: Dict[str, str]) -> None:
     _write_tag_definitions(path, _tag_definitions_by_file[normalized])
 
 
+def default_config_path() -> Path:
+    """Return the preferred config path for commands that target a single file."""
+    return settings_module.default_config_path()
+
+
 def _write_tag_definitions(path: Path, definitions: Optional[Dict[str, str]]) -> None:
     path = path.expanduser()
     if definitions is None:
@@ -521,10 +517,10 @@ def _write_tag_definitions(path: Path, definitions: Optional[Dict[str, str]]) ->
 
 
 __all__ = [
-    "DEFAULT_CONFIG_PATHS",
     "DEFAULT_KEYS_DIR",
     "DEFAULT_HOME_SSH_CONFIG",
     "DEFAULT_INCLUDE_FALLBACKS",
+    "default_config_path",
     "append_host_block",
     "discover_config_files",
     "format_host_block",

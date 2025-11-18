@@ -10,7 +10,7 @@ from typer.main import get_command
 from click.exceptions import UsageError
 
 from .commands import register_commands
-from .config import DEFAULT_CONFIG_PATHS, DEFAULT_INCLUDE_FALLBACKS
+from .config import DEFAULT_INCLUDE_FALLBACKS
 from .commands.common import console
 
 app = typer.Typer(help="A tiny, modern SSH config explorer.")
@@ -98,4 +98,4 @@ def run(argv: Sequence[str] | None = None) -> None:
             console.print(exc.ctx.get_help())
         return exc.exit_code or 2
 
-__all__ = ["app", "run", "DEFAULT_CONFIG_PATHS", "DEFAULT_INCLUDE_FALLBACKS"]
+__all__ = ["app", "run", "DEFAULT_INCLUDE_FALLBACKS"]

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import typer
 
@@ -131,14 +131,17 @@ def register(app: typer.Typer) -> None:
     def set_color(
         tag: str = typer.Argument(..., help="Tag to define or update"),
         color: str = typer.Argument(..., help="Color name or hex code"),
-        target: Path = typer.Option(
-            Path(config_module.DEFAULT_HOME_SSH_CONFIG),
+        target: Optional[Path] = typer.Option(
+            None,
             "--target",
             "-t",
             help="SSH config whose tag definitions should be updated.",
         ),
     ) -> None:
         """Create or update a tag definition (tag + color) for a config file."""
+        if target is None:
+            target = config_module.default_config_path()
+
         resolved_target = target.expanduser()
         # Populate in-memory definitions for the selected file.
         config_module.parse_config_files([resolved_target])

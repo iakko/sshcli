@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
 
 import typer
 
@@ -18,8 +19,8 @@ def register(app: typer.Typer) -> None:
             "-n",
             help="Name for the new Host block.",
         ),
-        target: Path = typer.Option(
-            Path(config_module.DEFAULT_HOME_SSH_CONFIG),
+        target: Optional[Path] = typer.Option(
+            None,
             "--target",
             "-t",
             help="SSH config file to append to.",
@@ -34,6 +35,9 @@ def register(app: typer.Typer) -> None:
         """Copy an existing Host block into a new entry."""
         if not name.strip():
             raise typer.BadParameter("Destination name must be a non-empty string.")
+
+        if target is None:
+            target = config_module.default_config_path()
 
         resolved_target = target.expanduser()
         if not resolved_target.exists():

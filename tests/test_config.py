@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from sshcli.config import append_host_block, parse_config_files
@@ -116,3 +117,43 @@ def test_pattern_scoring_helpers(monkeypatch):
 
     # Non-matching pattern yields None.
     assert common_module._score_pattern("foo", "baz*", 0) is None
+
+
+def test_discover_config_files_respects_settings(sample_config, tmp_path, monkeypatch):
+    """Ensure discover_config_files uses sshcli.json config sources."""
+    from sshcli import config as config_module
+
+    settings_path = tmp_path / "sshcli.json"
+    monkeypatch.setenv("SSHCLI_SETTINGS_PATH", str(settings_path))
+    other = tmp_path / "alt.conf"
+    other.write_text("Host bar\n    HostName bar.example.com\n")
+
+    payload = {
+        "configSources": [
+            {"path": str(sample_config["config"]), "enabled": True},
+            {"path": str(other), "enabled": False},
+        ]
+    }
+    settings_path.write_text(json.dumps(payload))
+
+    files = config_module.discover_config_files()
+    assert files == [sample_config["config"]]
+
+
+def test_default_config_path_prefers_marked_default(tmp_path, monkeypatch):
+    from sshcli import config as config_module
+
+    settings_path = tmp_path / "sshcli.json"
+    monkeypatch.setenv("SSHCLI_SETTINGS_PATH", str(settings_path))
+    primary = tmp_path / "primary"
+    secondary = tmp_path / "secondary"
+
+    payload = {
+        "configSources": [
+            {"path": str(primary), "enabled": True, "default": False},
+            {"path": str(secondary), "enabled": True, "default": True},
+        ]
+    }
+    settings_path.write_text(json.dumps(payload))
+
+    assert config_module.default_config_path() == secondary

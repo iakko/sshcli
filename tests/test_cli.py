@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import textwrap
+import json
 from pathlib import Path
 from typer.testing import CliRunner
 
@@ -346,6 +347,52 @@ def test_remove_command_deletes_block(tmp_path, cli_runner: CliRunner):
     content = target.read_text()
     assert "Host foo" not in content
     assert "Host bar" in content
+
+
+def test_config_source_cli_add(monkeypatch, tmp_path, cli_runner: CliRunner):
+    config_file = tmp_path / "my.conf"
+    config_file.write_text("Host foo\n    HostName foo.example.com\n")
+    settings_file = tmp_path / "sshcli.json"
+    monkeypatch.setenv("SSHCLI_SETTINGS_PATH", str(settings_file))
+
+    result = cli_runner.invoke(
+        cli_app,
+        [
+            "config-source",
+            "add",
+            str(config_file),
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(settings_file.read_text())
+    entry = next(
+        (item for item in payload["configSources"] if item["path"] == str(config_file)),
+        None,
+    )
+    assert entry is not None
+    assert entry["enabled"] is True
+
+
+def test_config_source_cli_default(monkeypatch, tmp_path, cli_runner: CliRunner):
+    settings_file = tmp_path / "sshcli.json"
+    monkeypatch.setenv("SSHCLI_SETTINGS_PATH", str(settings_file))
+
+    config_a = tmp_path / "a.conf"
+    config_b = tmp_path / "b.conf"
+    config_a.write_text("Host a\n    HostName a\n")
+    config_b.write_text("Host b\n    HostName b\n")
+
+    cli_runner.invoke(cli_app, ["config-source", "add", str(config_a)])
+    cli_runner.invoke(cli_app, ["config-source", "add", str(config_b)])
+
+    result = cli_runner.invoke(cli_app, ["config-source", "default", str(config_b)])
+    assert result.exit_code == 0
+
+    payload = json.loads(settings_file.read_text())
+    defaults = [item for item in payload["configSources"] if item.get("default")]
+    assert len(defaults) == 1
+    assert defaults[0]["path"] == str(config_b)
 
 
 def test_backup_prune_requires_selector(tmp_path, cli_runner: CliRunner):
