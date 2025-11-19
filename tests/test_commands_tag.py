@@ -70,3 +70,40 @@ def test_tag_color_updates_definitions(monkeypatch):
     assert result.exit_code == 0
     assert recorded["payload"]["prod"] == "red"
     assert recorded["payload"]["staging"] == "#00ff00"
+
+
+def test_tag_list_displays_counts(monkeypatch, host_block_factory):
+    block_one = host_block_factory(["app"], tags=["prod", "blue"])
+    block_two = host_block_factory(["db"], tags=["prod"])
+
+    monkeypatch.setattr(tag_module.config_module, "load_host_blocks", lambda: [block_one, block_two])
+
+    result = runner.invoke(app, ["tag", "list"])
+    assert result.exit_code == 0
+    assert "prod (2 hosts)" in result.stdout
+    assert "blue (1 host)" in result.stdout
+
+
+def test_tag_list_reports_empty(monkeypatch):
+    monkeypatch.setattr(tag_module.config_module, "load_host_blocks", lambda: [])
+
+    result = runner.invoke(app, ["tag", "list"])
+    assert result.exit_code == 0
+    assert "No tags found" in result.stdout
+
+
+def test_tag_show_displays_matching_hosts(monkeypatch, host_block_factory):
+    block = host_block_factory(["app"], options={"HostName": "app.example"}, tags=["prod"])
+    monkeypatch.setattr(tag_module.config_module, "load_host_blocks", lambda: [block])
+
+    result = runner.invoke(app, ["tag", "show", "prod"])
+    assert result.exit_code == 0
+    assert "app.example" in result.stdout
+
+
+def test_tag_show_reports_missing(monkeypatch):
+    monkeypatch.setattr(tag_module.config_module, "load_host_blocks", lambda: [])
+
+    result = runner.invoke(app, ["tag", "show", "prod"])
+    assert result.exit_code == 0
+    assert "No hosts found with tag" in result.stdout

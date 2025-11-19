@@ -87,3 +87,12 @@ def test_delete_backups_removes_files(tmp_path):
     removed = backup_module._delete_backups([target])
     assert removed == [target]
     assert not target.exists()
+
+
+def test_resolve_target_uses_default(monkeypatch, tmp_path):
+    default = tmp_path / "config"
+    default.write_text("Host default\n")
+    monkeypatch.setattr(backup_module.config_module, "default_config_path", lambda: default)
+
+    resolved = backup_module._resolve_target(None)
+    assert resolved == default
