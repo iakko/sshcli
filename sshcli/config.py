@@ -4,6 +4,6 @@ from __future__ import annotations
 
 import sys as _sys
 
-from .core import config as _core_config
+from sshcore import config as _core_config
 
 _sys.modules[__name__] = _core_config

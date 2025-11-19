@@ -1,3 +1,19 @@
+Metadata-Version: 2.4
+Name: ixlab-sshcli
+Version: 1.0.0
+Summary: Command-line explorer for SSH configs built on sshcore.
+Author-email: Iacopo Palazzi <iacopo.palazzi@gmail.com>
+License: MIT
+Project-URL: Homepage, https://github.com/iakko/sshcli
+Keywords: ssh,cli,config
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: ixlab-sshcore>=1.0.0
+Requires-Dist: typer>=0.12
+Requires-Dist: rich>=13.0
+Dynamic: license-file
+
 # sshcli: A Modern SSH Config Manager
 
 `sshcli` is a command-line tool for exploring, managing, and tidying your SSH configuration files. It provides a rich set of commands to list, search, edit, and tag your hosts, making it easy to handle complex SSH setups without manually editing config files.

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 import typer
 
-from .. import config as config_module
+from .. import config as config_module, settings as settings_module
 from .common import console
 
 
@@ -32,18 +31,19 @@ def register(app: typer.Typer) -> None:
             raise typer.Exit(1)
 
         block = matching[0]
-        definitions = config_module.get_tag_definitions(Path(block.source_file))
+
+        definitions = settings_module.get_tag_definitions()
         lookup = {name.lower(): name for name in definitions.keys()}
 
         missing = [tag for tag in tags if tag.lower() not in lookup]
         if missing:
             console.print(
-                "[red]The following tags are not defined in this config: "
+                "[red]The following tags are not defined: "
                 + ", ".join(repr(t) for t in missing)
                 + "[/red]"
             )
             console.print(
-                "[yellow]Define tags (and their colors) with 'sshcli tag color --target <config> TAG COLOR' before assigning them.[/yellow]"
+                "[yellow]Define tags (and their colors) with 'sshcli tag color TAG COLOR' before assigning them.[/yellow]"
             )
             raise typer.Exit(1)
 
@@ -131,25 +131,16 @@ def register(app: typer.Typer) -> None:
     def set_color(
         tag: str = typer.Argument(..., help="Tag to define or update"),
         color: str = typer.Argument(..., help="Color name or hex code"),
-        target: Optional[Path] = typer.Option(
-            None,
-            "--target",
-            "-t",
-            help="SSH config whose tag definitions should be updated.",
-        ),
     ) -> None:
-        """Create or update a tag definition (tag + color) for a config file."""
-        if target is None:
-            target = config_module.default_config_path()
-
-        resolved_target = target.expanduser()
-        # Populate in-memory definitions for the selected file.
-        config_module.parse_config_files([resolved_target])
-        definitions = config_module.get_tag_definitions(resolved_target)
+        """Create or update a tag definition (tag + color) in the central sshcli.json."""
+        # Load existing definitions from the central sshcli.json
+        definitions = settings_module.get_tag_definitions()
+        # Update the specific tag's color
         definitions[tag] = color
-        config_module.update_tag_definitions(resolved_target, definitions)
+        # Save all definitions back to sshcli.json
+        settings_module.update_tag_definitions(definitions)
         console.print(
-            f"[green]Set color for tag '{tag}' to '{color}' in {resolved_target}[/green]"
+            f"[green]Set color for tag '{tag}' to '{color}' in the central configuration.[/green]"
         )
 
     app.add_typer(tag_app, name="tag")

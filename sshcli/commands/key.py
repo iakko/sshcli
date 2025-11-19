@@ -4,7 +4,7 @@ import typer
 from rich.table import Table
 
 from ..config import DEFAULT_KEYS_DIR
-from ..core import keys as core_keys
+from sshcore import keys as core_keys
 from .common import console
 
 key_app = typer.Typer(help="Manage SSH keys referenced by the CLI.")

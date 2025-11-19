@@ -6,7 +6,7 @@ import typer
 from rich import box
 from rich.table import Table
 
-from ..core import settings as settings_module
+from sshcore import settings as settings_module
 from .common import console
 
 

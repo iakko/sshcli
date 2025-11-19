@@ -11,7 +11,7 @@ from rich import box
 from rich.table import Table
 
 from .. import config as config_module
-from ..core import backups as backups_core
+from sshcore import backups as backups_core
 from .common import console
 from typer.main import get_command
 
@@ -19,7 +19,7 @@ backup_app = typer.Typer(help="Inspect, restore, and prune SSH config backups.")
 
 
 def _resolve_target(target: Optional[Path]) -> Path:
-    base = target or config_module.default_config_path()
+    base = target or backups_core.get_default_config_path()
     return base.expanduser()
 
 
