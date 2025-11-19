@@ -1,3 +1,4 @@
+import click
 from sshcli.cli import _rewrite_default_invocation, run
 
 
@@ -28,3 +29,16 @@ def test_run_passes_rewritten_arguments(monkeypatch):
     assert calls["args"] == ["show", "my-host", "--details", "--flag"]
     assert calls["prog"] == "sshcli"
     assert calls["standalone"] is False
+
+
+def test_run_handles_usage_error(monkeypatch, capsys):
+    class DummyCommand:
+        def main(self, args, prog_name, standalone_mode):
+            ctx = click.Context(click.Command("dummy"))
+            raise click.UsageError("invalid invocation", ctx=ctx)
+
+    monkeypatch.setattr("sshcli.cli.get_command", lambda app: DummyCommand())
+
+    run(["invalid"])
+    captured = capsys.readouterr()
+    assert "invalid invocation" in captured.out

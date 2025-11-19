@@ -19,7 +19,7 @@ backup_app = typer.Typer(help="Inspect, restore, and prune SSH config backups.")
 
 
 def _resolve_target(target: Optional[Path]) -> Path:
-    base = target or backups_core.get_default_config_path()
+    base = target or config_module.default_config_path()
     return base.expanduser()
 
 
