@@ -3,8 +3,8 @@ from __future__ import annotations
 import typer
 from rich.table import Table
 
-from ..config import DEFAULT_KEYS_DIR
 from sshcore import keys as core_keys
+from sshcore.config import DEFAULT_KEYS_DIR
 from .common import console
 
 key_app = typer.Typer(help="Manage SSH keys referenced by the CLI.")

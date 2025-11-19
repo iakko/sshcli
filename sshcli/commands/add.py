@@ -5,7 +5,7 @@ from typing import List, Optional, Tuple
 
 import typer
 
-from .. import config as config_module
+from sshcore import config as config_module
 from ..models import HostBlock
 from .common import console, parse_option_entry
 

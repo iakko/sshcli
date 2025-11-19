@@ -5,7 +5,7 @@ from typing import List
 import typer
 from rich.panel import Panel
 
-from .. import config as config_module
+from sshcore import config as config_module
 from .common import console, format_block_table, matching_blocks
 
 

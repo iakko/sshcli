@@ -10,7 +10,7 @@ from typer.main import get_command
 from click.exceptions import UsageError
 
 from .commands import register_commands
-from .config import DEFAULT_INCLUDE_FALLBACKS
+from sshcore.config import DEFAULT_INCLUDE_FALLBACKS
 from .commands.common import console
 
 app = typer.Typer(help="A tiny, modern SSH config explorer.")

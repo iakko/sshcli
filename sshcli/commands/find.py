@@ -7,7 +7,7 @@ import typer
 from rich import box
 from rich.table import Table
 
-from .. import config as config_module
+from sshcore import config as config_module
 from ..models import HostBlock
 from .common import console
 

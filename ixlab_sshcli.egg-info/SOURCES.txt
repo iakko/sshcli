@@ -9,7 +9,6 @@ ixlab_sshcli.egg-info/requires.txt
 ixlab_sshcli.egg-info/top_level.txt
 sshcli/__init__.py
 sshcli/cli.py
-sshcli/config.py
 sshcli/models.py
 sshcli/settings.py
 sshcli/commands/__init__.py

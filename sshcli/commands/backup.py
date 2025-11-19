@@ -10,7 +10,7 @@ import typer
 from rich import box
 from rich.table import Table
 
-from .. import config as config_module
+from sshcore import config as config_module
 from sshcore import backups as backups_core
 from .common import console
 from typer.main import get_command

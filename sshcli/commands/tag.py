@@ -4,7 +4,9 @@ from typing import List
 
 import typer
 
-from .. import config as config_module, settings as settings_module
+from sshcore import config as config_module, settings as settings_module
+from sshcore.models import HostBlock
+
 from .common import console
 
 
@@ -17,18 +19,8 @@ def register(app: typer.Typer) -> None:
         tags: List[str] = typer.Argument(..., help="Tags to add"),
     ) -> None:
         """Add one or more tags to a host."""
-        blocks = config_module.load_host_blocks()
-        matching = [b for b in blocks if host_pattern in b.patterns]
-
-        if not matching:
-            console.print(f"[red]No host found matching '{host_pattern}'[/red]")
-            raise typer.Exit(1)
-
-        if len(matching) > 1:
-            console.print(f"[yellow]Multiple hosts match '{host_pattern}':[/yellow]")
-            for block in matching:
-                console.print(f"  - {', '.join(block.patterns)}")
-            raise typer.Exit(1)
+        
+        matching = _blocks_matching(host_pattern, config_module.load_host_blocks())
 
         block = matching[0]
 
@@ -66,18 +58,7 @@ def register(app: typer.Typer) -> None:
         tags: List[str] = typer.Argument(..., help="Tags to remove"),
     ) -> None:
         """Remove one or more tags from a host."""
-        blocks = config_module.load_host_blocks()
-        matching = [b for b in blocks if host_pattern in b.patterns]
-
-        if not matching:
-            console.print(f"[red]No host found matching '{host_pattern}'[/red]")
-            raise typer.Exit(1)
-
-        if len(matching) > 1:
-            console.print(f"[yellow]Multiple hosts match '{host_pattern}':[/yellow]")
-            for block in matching:
-                console.print(f"  - {', '.join(block.patterns)}")
-            raise typer.Exit(1)
+        matching = _blocks_matching(host_pattern, config_module.load_host_blocks())
 
         block = matching[0]
         for tag in tags:
@@ -145,5 +126,20 @@ def register(app: typer.Typer) -> None:
 
     app.add_typer(tag_app, name="tag")
 
+
+    def _blocks_matching(host_pattern: str, blocks: List[HostBlock]) -> List[HostBlock]:
+        matching = [b for b in blocks if host_pattern in b.patterns]
+
+        if not matching:
+            console.print(f"[red]No host found matching '{host_pattern}'[/red]")
+            raise typer.Exit(1)
+
+        if len(matching) > 1:
+            console.print(f"[yellow]Multiple hosts match '{host_pattern}':[/yellow]")
+            for block in matching:
+                console.print(f"  - {', '.join(block.patterns)}")
+            raise typer.Exit(1)
+        
+        return matching
 
 __all__ = ["register"]
